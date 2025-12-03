@@ -9,7 +9,7 @@ You need to prepare two development boards for espressif chips, one as the sende
 
 ![example_display](./docs/_static/example_display.png)
 
-1. Use ESP32-C5 / ESP32-S6: ESP32-C5 supports dual-band Wi-Fi communication and is one of the best RF chips available. ESP32-C6 is the best RF chip among the currently released models.
+1. Use ESP32-C5 / ESP32-C6: ESP32-C5 supports dual-band Wi-Fi communication and is one of the best RF chips available. ESP32-C6 is the best RF chip among the currently released models.
 2. Use an external antenna: The PCB antenna has poor directivity and is easily interfered with by the motherboard.
 3. The distance between the two devices should be greater than 1 meter.
 
