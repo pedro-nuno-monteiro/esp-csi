@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*-coding:utf-8-*-
 
-# SPDX-FileCopyrightText: 2021-2025 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -41,6 +41,7 @@ csi_vaid_subcarrier_len =0
 CSI_DATA_INDEX = 200  # buffer size
 CSI_DATA_COLUMNS = 490
 DATA_COLUMNS_NAMES_C5C6 = ['type', 'id', 'mac', 'rssi', 'rate','noise_floor','fft_gain','agc_gain', 'channel', 'local_timestamp',  'sig_len', 'rx_state', 'len', 'first_word', 'data']
+DATA_COLUMNS_NAMES_NEW = ['type', 'mac','len', 'first_word', 'data']
 DATA_COLUMNS_NAMES = ['type', 'id', 'mac', 'rssi', 'rate', 'sig_mode', 'mcs', 'bandwidth', 'smoothing', 'not_sounding', 'aggregation', 'stbc', 'fec_coding',
                       'sgi', 'noise_floor', 'ampdu_cnt', 'channel', 'secondary_channel', 'local_timestamp', 'ant', 'sig_len', 'rx_state', 'len', 'first_word', 'data']
 
@@ -211,9 +212,9 @@ def csi_data_read_parse(port: str, csv_writer, log_file_fd,callback=None):
         csv_reader = csv.reader(StringIO(strings))
         csi_data = next(csv_reader)
         csi_data_len = int (csi_data[-3])
-        if len(csi_data) != len(DATA_COLUMNS_NAMES) and len(csi_data) != len(DATA_COLUMNS_NAMES_C5C6):
+        if len(csi_data) != len(DATA_COLUMNS_NAMES) and len(csi_data) != len(DATA_COLUMNS_NAMES_C5C6 ) and len(csi_data) != len(DATA_COLUMNS_NAMES_NEW):
             print('element number is not equal',len(csi_data),len(DATA_COLUMNS_NAMES) )
-            # print(csi_data)
+            print(strings)
             log_file_fd.write('element number is not equal\n')
             log_file_fd.write(strings + '\n')
             log_file_fd.flush()
@@ -234,8 +235,8 @@ def csi_data_read_parse(port: str, csv_writer, log_file_fd,callback=None):
             log_file_fd.flush()
             continue
 
-        fft_gain = int(csi_data[6])
-        agc_gain = int(csi_data[7])
+        fft_gain = 0 # int(csi_data[6])
+        agc_gain = 0 # int(csi_data[7])
 
         fft_gains.append(fft_gain)
         agc_gains.append(agc_gain)
@@ -263,7 +264,7 @@ def csi_data_read_parse(port: str, csv_writer, log_file_fd,callback=None):
             elif  csi_data_len == 234 :
                 colors = generate_subcarrier_colors((0,28), (29,56), (60,116), len(csi_raw_data))
             elif  csi_data_len == 228 :
-                colors = generate_subcarrier_colors((0,28), (29,57), (57,113), len(csi_raw_data))
+                colors = generate_subcarrier_colors((0,28), (29,56), (57,114), len(csi_raw_data))
             elif  csi_data_len == 490 :
                 colors = generate_subcarrier_colors((0,61), (62,122), (123,245), len(csi_raw_data))
             elif  csi_data_len == 128 :
