@@ -10,10 +10,8 @@
 #include <math.h>
 
 #include "esp_system.h"
-#include "esp_wifi.h"
 #include "esp_log.h"
-#include "esp_timer.h"
-#include "esp_radar_t.h"
+#include "esp_csi_gain_ctrl.h"
 
 #if WIFI_CSI_PHY_GAIN_ENABLE
 
@@ -21,14 +19,12 @@
 #define FIX_GAIN_OUTLIER_THRESHOLD  8
 
 typedef struct {
-    uint8_t reserved[22];  // 176 bits = 22 bytes，占位到增益字段起始处
+    uint8_t reserved[22];
     uint8_t fft_gain;
     uint8_t agc_gain;
 } __attribute__((packed)) wifi_pkt_rx_ctrl_gain_info_t;
 
 typedef struct {
-    uint32_t timestamp;
-    int8_t rssi;
     bool force_en;
 
     uint32_t count;
@@ -43,23 +39,29 @@ extern void phy_force_rx_gain(bool force_en, int force_value);
 
 static const char *TAG = "wifi_rx_gain";
 
-static rx_gain_record_t *g_rx_gain_record = NULL;
-
-bool esp_radar_auto_rx_gain_status()
+static rx_gain_record_t g_rx_gain_record = {0};
+static uint8_t g_agc_gain_baseline = 0;
+static int8_t g_fft_gain_baseline  = 0;
+esp_err_t esp_csi_gain_ctrl_get_rx_gain_baseline(uint8_t* agc_gain, int8_t *fft_gain)
 {
-    if (!g_rx_gain_record) {
-        g_rx_gain_record = calloc(1, sizeof(rx_gain_record_t));
+    if (!agc_gain || !fft_gain) {
+        return ESP_ERR_INVALID_ARG;
     }
-
-    return g_rx_gain_record->force_en;
+    *agc_gain = g_agc_gain_baseline;
+    *fft_gain = g_fft_gain_baseline;
+    return ESP_OK;
 }
 
-// esp_err_t esp_radar_get_rx_gain(uint8_t* agc_gain, int8_t *fft_gain)
-// {
-//     *agc_gain = g_rx_gain_record->agc_gain_buff[g_rx_gain_record->count % FIX_GAIN_BUFF_SIZE];
-//     *fft_gain = g_rx_gain_record->fft_gain_buff[g_rx_gain_record->count % FIX_GAIN_BUFF_SIZE];
-//     return ESP_OK;
-// }
+rx_gain_status_t esp_csi_gain_ctrl_get_gain_status(void)
+{
+    if (g_rx_gain_record.force_en) {
+        return RX_GAIN_FORCE;
+    } else if (g_rx_gain_record.baseline_count >= FIX_GAIN_BUFF_SIZE) {
+        return RX_GAIN_READY;
+    } else {
+        return RX_GAIN_COLLECT;
+    }
+}
 
 typedef struct {
     uint8_t agc;
@@ -73,13 +75,32 @@ static int cmp_gain_pair_by_agc(const void *a, const void *b)
     return (int)pa->agc - (int)pb->agc;
 }
 
-esp_err_t esp_radar_get_rx_gain_baseline(uint8_t* agc_gain, int8_t *fft_gain)
+static inline int16_t clamp_int16(int32_t v)
+{
+    if (v > INT16_MAX) {
+        return INT16_MAX;
+    }
+    if (v < INT16_MIN) {
+        return INT16_MIN;
+    }
+    return (int16_t)v;
+}
+
+static inline int8_t clamp_int8(int32_t v)
+{
+    if (v > INT8_MAX) {
+        return INT8_MAX;
+    }
+    if (v < INT8_MIN) {
+        return INT8_MIN;
+    }
+    return (int8_t)v;
+}
+
+static esp_err_t esp_csi_gain_ctrl_calculate_gain_baseline(uint8_t* agc_gain, int8_t *fft_gain)
 {
     if (!agc_gain || !fft_gain) {
         return ESP_ERR_INVALID_ARG;
-    }
-    if (!g_rx_gain_record) {
-        g_rx_gain_record = calloc(1, sizeof(rx_gain_record_t));
     }
 
     if (g_rx_gain_record->baseline_count < FIX_GAIN_BUFF_SIZE) {
@@ -106,31 +127,24 @@ esp_err_t esp_radar_get_rx_gain_baseline(uint8_t* agc_gain, int8_t *fft_gain)
     return ESP_OK;
 }
 
-esp_err_t esp_radar_record_rx_gain(uint8_t agc_gain, int8_t fft_gain)
+esp_err_t esp_csi_gain_ctrl_record_rx_gain(uint8_t agc_gain, int8_t fft_gain)
 {
-    if (!g_rx_gain_record) {
-        g_rx_gain_record = calloc(1, sizeof(rx_gain_record_t));
-    }
-
-    g_rx_gain_record->timestamp = esp_log_timestamp();
-    g_rx_gain_record->count++;
-    g_rx_gain_record->baseline_count++;
-
     uint32_t index = g_rx_gain_record->count % FIX_GAIN_BUFF_SIZE;
     g_rx_gain_record->agc_gain_buff[index] = agc_gain;
     g_rx_gain_record->fft_gain_buff[index] = fft_gain;
 
-    // ESP_LOGD(TAG, "count: %d, agc_gain: %d, fft_gain: %d", g_rx_gain_record->count, rx_ctrl_gain->agc_gain, rx_ctrl_gain->fft_gain);
-
+    g_rx_gain_record->count++;
+    if (g_rx_gain_record->baseline_count < FIX_GAIN_BUFF_SIZE) {
+        g_rx_gain_record->baseline_count++;
+        if (g_rx_gain_record->baseline_count == FIX_GAIN_BUFF_SIZE) {
+            esp_csi_gain_ctrl_calculate_gain_baseline(&g_agc_gain_baseline, &g_fft_gain_baseline);
+        }
+    }
     return ESP_OK;
 }
 
-esp_err_t esp_radar_set_rx_force_gain(uint8_t agc_gain, int8_t fft_gain)
+esp_err_t esp_csi_gain_ctrl_set_rx_force_gain(uint8_t agc_gain, int8_t fft_gain)
 {
-    if (!g_rx_gain_record) {
-        g_rx_gain_record = calloc(1, sizeof(rx_gain_record_t));
-    }
-
     if (agc_gain == 0 && fft_gain == 0) {
         phy_force_rx_gain(false, 0);
         phy_fft_scale_force(false, 0);
@@ -150,70 +164,72 @@ esp_err_t esp_radar_set_rx_force_gain(uint8_t agc_gain, int8_t fft_gain)
     return ESP_OK;
 }
 
-void esp_radar_reset_rx_gain_baseline(void)
+void esp_csi_gain_ctrl_reset_rx_gain_baseline(void)
 {
-    if (!g_rx_gain_record) {
-        return;
-    }
-
+    g_agc_gain_baseline = 0;
+    g_fft_gain_baseline = 0;
     g_rx_gain_record->baseline_count = 0;
 }
 
-esp_err_t esp_radar_get_gain_compensation(float *compensate_gain, uint8_t agc_gain, int8_t fft_gain)
+esp_err_t esp_csi_gain_ctrl_get_gain_compensation(float *compensate_gain, uint8_t agc_gain, int8_t fft_gain)
 {
-    static uint8_t s_agc_gain_baseline = 0;
-    static int8_t s_fft_gain_baseline  = 0;
 
     if (!g_rx_gain_record) {
         return ESP_ERR_INVALID_STATE;
     }
 
     if (g_rx_gain_record->baseline_count < FIX_GAIN_BUFF_SIZE) {
-        s_agc_gain_baseline = 0;
-        s_fft_gain_baseline = 0;
+        g_agc_gain_baseline = 0;
+        g_fft_gain_baseline = 0;
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (s_agc_gain_baseline == 0 && s_fft_gain_baseline == 0) {
-        if (esp_radar_get_rx_gain_baseline(&s_agc_gain_baseline, &s_fft_gain_baseline) != ESP_OK) {
+    if (g_agc_gain_baseline == 0 && g_fft_gain_baseline == 0) {
+        if (esp_csi_gain_ctrl_calculate_gain_baseline(&g_agc_gain_baseline, &g_fft_gain_baseline) != ESP_OK) {
             return ESP_ERR_INVALID_STATE;
         }
     }
 
-    float compensate_factor = powf(10.0, ((agc_gain - s_agc_gain_baseline) + (fft_gain - s_fft_gain_baseline) / 4.0) / -20.0);
+    float compensate_factor = powf(10.0, ((agc_gain - g_agc_gain_baseline) + (fft_gain - g_fft_gain_baseline) / 4.0) / -20.0);
     *compensate_gain = compensate_factor;
 
     return ESP_OK;
 }
 
-esp_err_t esp_radar_compensate_rx_gain(void *data, uint16_t size, bool samples_are_16bit,
-                                       float *compensate_gain, uint8_t agc_gain, int8_t fft_gain)
+esp_err_t esp_csi_gain_ctrl_compensate_rx_gain(void *data, uint16_t size, bool samples_are_16bit,
+                                               float *compensate_gain, uint8_t agc_gain, int8_t fft_gain)
 {
     float compensate_factor = 0;
-    esp_err_t err = esp_radar_get_gain_compensation(&compensate_factor, agc_gain, fft_gain);
+    esp_err_t err = esp_csi_gain_ctrl_get_gain_compensation(&compensate_factor, agc_gain, fft_gain);
     if (err != ESP_OK) {
         return err;
     }
 
     *compensate_gain = compensate_factor;
+
     if (samples_are_16bit) {
         int16_t *ptr = (int16_t *)data;
         uint16_t sample_count = size / sizeof(int16_t);
         for (uint16_t i = 0; i < sample_count; i++) {
-            ptr[i] = (int16_t)(ptr[i] * compensate_factor);
+            int32_t scaled = (int32_t)roundf(ptr[i] * compensate_factor);
+            ptr[i] = clamp_int16(scaled);
         }
     } else {
         int8_t *ptr = (int8_t *)data;
         for (uint16_t i = 0; i < size; i++) {
-            ptr[i] = (int8_t)(ptr[i] * compensate_factor);
+            int32_t scaled = (int32_t)roundf(ptr[i] * compensate_factor);
+            ptr[i] = clamp_int8(scaled);
         }
     }
-
     return ESP_OK;
 }
 
-void esp_radar_get_rx_gain(const wifi_pkt_rx_ctrl_t *rx_ctrl, uint8_t* agc_gain, int8_t* fft_gain)
+void esp_csi_gain_ctrl_get_rx_gain(const void *rx_ctrl, uint8_t* agc_gain, int8_t* fft_gain)
 {
+    if (!rx_ctrl || !agc_gain || !fft_gain) {
+        ESP_LOGE(TAG, "invalid args to get_rx_gain");
+        return;
+    }
     *agc_gain = ((wifi_pkt_rx_ctrl_gain_info_t *)rx_ctrl)->agc_gain;
     *fft_gain = (int8_t)((wifi_pkt_rx_ctrl_gain_info_t *)rx_ctrl)->fft_gain;
 }

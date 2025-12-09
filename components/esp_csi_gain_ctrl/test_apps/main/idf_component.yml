@@ -5,7 +5,3 @@ dependencies:
   esp-radar:
     version: '>=0.8.0'
     override_path: ../../
-
-  # esp_csi_gain_ctrl:
-  #   version: '>=1.0.0'
-  #   override_path: ../../../esp_csi_gain_ctrl

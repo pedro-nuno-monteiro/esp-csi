@@ -22,7 +22,7 @@
 #include "esp_heap_caps.h"
 #include "esp_heap_trace.h"
 
-static const uint8_t CONFIG_CSI_SEND_MAC[] = {0x3a, 0x00, 0x00, 0x00, 0x00, 0x00};
+static const uint8_t CONFIG_CSI_SEND_MAC[] = {0x2a, 0x00, 0x00, 0x00, 0x00, 0x00};
 static const char *TAG = "csi_recv";
 static heap_trace_record_t s_trace_record[256];
 
@@ -154,7 +154,7 @@ void app_main()
     memcpy(csi_config.filter_mac, CONFIG_CSI_SEND_MAC, 6);
     csi_config.csi_filtered_cb = wifi_csi_rx_cb_1;
     // csi_config.acquire_csi_lltf = false;
-    // csi_config.csi_compensate_en = false;
+    csi_config.csi_compensate_en = false;
     // csi_config.csi_filtered_cb_ctx = CONFIG_CSI_SEND_MAC;
     // csi_config.csi_recv_interval = 50;
     esp_radar_wifi_config_t wifi_config = ESP_RADAR_WIFI_CONFIG_DEFAULT();

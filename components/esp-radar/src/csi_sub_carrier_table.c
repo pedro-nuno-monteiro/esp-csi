@@ -268,7 +268,80 @@ const csi_sub_carrier_table_t sub_carrier_table[] = {
         .stbc_he_ltf = {{0, 242}, {248, 490}},
     },
 #elif CONFIG_IDF_TARGET_ESP32C6
-
+    /**< non HT, 20 MHz, non STBC, LLTF: 0~31, -32~-1, 128 */
+    {
+        .signal_mode       = WIFI_SIGNAL_MODE_NON_HT,
+        .channel_bandwidth = WIFI_CHANNEL_BANDWIDTH_20MHZ,
+        .stbc              = false,
+        .total_bytes       = 128,
+        .valid_bytes       = 104,
+        .llft_bytes        = 104,
+        .llft = {{12, 64}, {66, 118}}, //
+    },
+    /**< HT,     20 MHz, non STBC, HT-LFT: 0~31, -32~-1, 128 */
+    {
+        .signal_mode       = WIFI_SIGNAL_MODE_HT,
+        .channel_bandwidth = WIFI_CHANNEL_BANDWIDTH_20MHZ,
+        .stbc              = false,
+        .total_bytes       = 128,
+        .valid_bytes       = 112,
+        .ht_lft_bytes      = 112,
+        .ht_lft = {{8, 64}, {66, 122}},
+    },
+    /**< HT,     20 MHz,     STBC, HT-LFT: 0~31, -32~-1, STBC-HT-LTF: 0~31, -32~-1, 256 */
+    {
+        .signal_mode       = WIFI_SIGNAL_MODE_HT,
+        .channel_bandwidth = WIFI_CHANNEL_BANDWIDTH_20MHZ,
+        .stbc              = true,
+        .total_bytes       = 256,
+        .valid_bytes       = 224,
+        .ht_lft_bytes      = 112,
+        .stbc_ht_lft_bytes = 112,
+        .ht_lft = {{8, 64}, {66, 122}},
+        .stbc_ht_lft = {{136, 192}, {194, 250}},
+    },
+    /**< HT,     40 MHz, non STBC, HT-LFT: 0~63, -64~-1, 256 */
+    {
+        .signal_mode       = WIFI_SIGNAL_MODE_HT,
+        .channel_bandwidth = WIFI_CHANNEL_BANDWIDTH_40MHZ,
+        .stbc              = false,
+        .total_bytes       = 256,
+        .valid_bytes       = 228,
+        .ht_lft_bytes      = 228,
+        .ht_lft = {{12, 126}, {132, 246}},
+    },
+    /**< HT,     40 MHz,     STBC, HT-LFT: 0~63, -64~-1, STBC-HT-LTF: 0~63, -64~-1, 512 */
+    {
+        .signal_mode       = WIFI_SIGNAL_MODE_HT,
+        .channel_bandwidth = WIFI_CHANNEL_BANDWIDTH_40MHZ,
+        .stbc              = true,
+        .total_bytes       = 512,
+        .valid_bytes       = 456,
+        .ht_lft_bytes      = 228,
+        .stbc_ht_lft_bytes = 228,
+        .ht_lft = {{12, 126}, {132, 246}},
+        .stbc_ht_lft = {268, 382}, {388, 502},
+    },
+    /**< HE,     20 MHz, non STBC, HE-LTF: 0~127, -128~-1, 512 */
+    {
+        .signal_mode       = WIFI_SIGNAL_MODE_HE,
+        .channel_bandwidth = WIFI_CHANNEL_BANDWIDTH_20MHZ,
+        .stbc              = false,
+        .total_bytes       = 512,
+        .valid_bytes       = 484,
+        .he_ltf_bytes      = 484,
+        .he_ltf = {{12, 254}, {260, 502}},
+    },
+    /**< HE,     20 MHz,     STBC, STBC-HE-LTF: 0~127, -128~-1, 512 */
+    {
+        .signal_mode       = WIFI_SIGNAL_MODE_HE,
+        .channel_bandwidth = WIFI_CHANNEL_BANDWIDTH_20MHZ,
+        .stbc              = true,
+        .total_bytes       = 512,
+        .valid_bytes       = 484,
+        .stbc_he_ltf_bytes = 484,
+        .stbc_he_ltf = {{12, 254}, {260, 502}},
+    },
 #endif
 
 };

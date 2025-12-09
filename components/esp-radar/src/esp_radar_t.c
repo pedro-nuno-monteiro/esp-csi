@@ -15,7 +15,7 @@
 #include "esp_check.h"
 #include "esp_private/esp_wifi_he_types_private.h"
 #include "esp_radar_t.h"
-#include "wifi_rx_gain.h"
+#include "esp_csi_gain_ctrl.h"
 #include "utils.h"
 static const char *TAG                          = "esp_radar";
 static const char *TAG_DETECTION                = "csi_detection_task";
@@ -123,7 +123,7 @@ static esp_err_t esp_radar_extract_rx_ctrl_info(const wifi_pkt_rx_ctrl_t *rx_ctr
     info->rssi = rx_ctrl->rssi;
     info->rate = rx_ctrl->rate;
     info->rx_format = rx_ctrl->cur_bb_format;
-    esp_radar_get_rx_gain(rx_ctrl, &info->agc_gain, &info->fft_gain);
+    esp_csi_gain_ctrl_get_rx_gain(rx_ctrl, &info->agc_gain, &info->fft_gain);
     info->timestamp = rx_ctrl->timestamp;
     info->noise_floor = rx_ctrl->noise_floor;
     info->channel = rx_ctrl->channel;
@@ -177,7 +177,7 @@ static esp_err_t esp_radar_extract_rx_ctrl_info(const wifi_pkt_rx_ctrl_t *rx_ctr
     info->agc_gain = 0;
     info->fft_gain = 0;
 #else
-    esp_radar_get_rx_gain(rx_ctrl, &info->agc_gain, &info->fft_gain);
+    esp_csi_gain_ctrl_get_rx_gain(rx_ctrl, &info->agc_gain, &info->fft_gain);
 #endif
     info->timestamp = rx_ctrl->timestamp;
     info->noise_floor = rx_ctrl->noise_floor;
@@ -374,18 +374,21 @@ static void esp_radar_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
 
     float compensate_gain = 0;
 #if WIFI_CSI_PHY_GAIN_ENABLE
-    esp_radar_record_rx_gain(rx_ctrl_info.agc_gain, rx_ctrl_info.fft_gain);
+    esp_csi_gain_ctrl_record_rx_gain(rx_ctrl_info.agc_gain, rx_ctrl_info.fft_gain);
     if (s_ctx.csi_config.csi_compensate_en) {
         bool samples_are_16bit = (filtered_info->data_type == WIFI_CSI_DATA_TYPE_INT16);
-        esp_radar_compensate_rx_gain(filtered_info->valid_data, filtered_info->valid_len, samples_are_16bit,
-                                     &compensate_gain, rx_ctrl_info.agc_gain, rx_ctrl_info.fft_gain);
+        esp_csi_gain_ctrl_compensate_rx_gain(filtered_info->valid_data, filtered_info->valid_len, samples_are_16bit,
+                                             &compensate_gain, rx_ctrl_info.agc_gain, rx_ctrl_info.fft_gain);
     }
 #endif
     filtered_info->rx_gain_compensation = compensate_gain;
     if (s_ctx.csi_config.csi_filtered_cb) {
         s_ctx.csi_config.csi_filtered_cb(s_ctx.csi_config.csi_filtered_cb_ctx, filtered_info);
     }
-
+    uint8_t agc_gain = 0;
+    int8_t fft_gain = 0;
+    esp_csi_gain_ctrl_get_rx_gain_baseline(&agc_gain, &fft_gain);
+    ESP_LOGI(TAG_CB, "agc_gain: %d, fft_gain: %d", agc_gain, fft_gain);
     if (!s_ctx.run_flag) {
         static bool run_flag_warned = false;
         if (!run_flag_warned) {
@@ -727,7 +730,7 @@ esp_err_t esp_radar_train_stop(float *wander_threshold, float *jitter_threshold)
 static esp_err_t csi_detection_handle_auto_rx_gain(void)
 {
 #if WIFI_CSI_PHY_GAIN_ENABLE
-    if (esp_radar_auto_rx_gain_status()) {
+    if (esp_csi_gain_ctrl_get_gain_status()) {
         if (s_radar_calibrate && s_radar_calibrate->calibrate_status == RADAR_CALIBRATE_PROGRESS) {
             ESP_LOGW(TAG_TRAIN, "Auto RX gain active, reset calibration data");
             esp_radar_train_remove();
@@ -1228,7 +1231,7 @@ esp_err_t esp_radar_init(esp_radar_config_t *config)
     }
 
 #if WIFI_CSI_PHY_GAIN_ENABLE
-    esp_radar_reset_rx_gain_baseline();
+    esp_csi_gain_ctrl_reset_rx_gain_baseline();
 #endif
     return ESP_OK;
 }
