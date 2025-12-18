@@ -1,17 +1,8 @@
-// Copyright 2021 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
+/*
+ * SPDX-FileCopyrightText: 2021-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <errno.h>
 #include <string.h>
@@ -35,7 +26,7 @@
 
 static const char *TAG  = "ping_cmd";
 
-static esp_ping_handle_t g_ping_handle = NULL;
+esp_ping_handle_t g_ping_handle = NULL;
 
 static void ping_cmd_on_success(esp_ping_handle_t hdl, void *args)
 {
@@ -132,9 +123,15 @@ static int wifi_cmd_ping(int argc, char **argv)
     }
 
     if (ping_args.abort->count > 0) {
-        esp_ping_stop(g_ping_handle);
-        esp_ping_delete_session(g_ping_handle);
-
+        if (g_ping_handle != NULL) {
+            ESP_LOGI(TAG, "Stopping ping session");
+            esp_ping_stop(g_ping_handle);
+            esp_ping_delete_session(g_ping_handle);
+            g_ping_handle = NULL;
+            ESP_LOGI(TAG, "Ping session stopped and deleted");
+        } else {
+            ESP_LOGW(TAG, "No active ping session to stop");
+        }
         ESP_LOGW(TAG, "esp_ping stop");
         return ESP_OK;
     }
@@ -183,6 +180,15 @@ static int wifi_cmd_ping(int argc, char **argv)
     }
 
     config.target_addr = target_addr;
+
+    /* stop and delete existing ping session if any */
+    if (g_ping_handle != NULL) {
+        ESP_LOGI(TAG, "Stopping existing ping session before starting new one");
+        esp_ping_stop(g_ping_handle);
+        esp_ping_delete_session(g_ping_handle);
+        g_ping_handle = NULL;
+        ESP_LOGI(TAG, "Existing ping session stopped and deleted");
+    }
 
     /* set callback functions */
     esp_ping_callbacks_t cbs = {

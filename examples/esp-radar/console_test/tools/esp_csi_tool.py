@@ -1,19 +1,8 @@
 #!/usr/bin/env python3
 # -*-coding:utf-8-*-
 
-# Copyright 2021 Espressif Systems (Shanghai) PTE LTD
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# SPDX-FileCopyrightText: 2021-2025 Espressif Systems (Shanghai) CO LTD
+# SPDX-License-Identifier: Apache-2.0
 #
 
 # WARNING: we don't check for Python build-time dependencies until
@@ -60,7 +49,7 @@ import socket
 CSI_SAMPLE_RATE = 100
 
 # Remove invalid subcarriers
-# secondary channel : below, HT, 40 MHz, non STBC, v, HT-LFT: 0~63, -64~-1, 384
+# secondary channel : below, HT, 40 MHz, non STBC, v, HT-LTF: 0~63, -64~-1, 384
 CSI_VAID_SUBCARRIER_INTERVAL = 5
 csi_vaid_subcarrier_index = []
 csi_vaid_subcarrier_color = []
@@ -78,36 +67,37 @@ csi_vaid_subcarrier_index += [i for i in range(
 csi_vaid_subcarrier_color += [(0, i * color_step, 0)
                               for i in range(1,  26 // CSI_VAID_SUBCARRIER_INTERVAL + 2)]
 
-DEVICE_INFO_COLUMNS_NAMES = ["type", "timestamp", "compile_time", "chip_name", "chip_revision",
-                             "app_revision", "idf_revision", "total_heap", "free_heap", "router_ssid", "ip", "port"]
+DEVICE_INFO_COLUMNS_NAMES = ['type', 'timestamp', 'compile_time', 'chip_name', 'chip_revision',
+                             'app_revision', 'idf_revision', 'total_heap', 'free_heap', 'router_ssid', 'ip', 'port']
 g_device_info_series = None
 
 CSI_DATA_INDEX = 500  # buffer size
 CSI_DATA_COLUMNS = len(csi_vaid_subcarrier_index)
-CSI_DATA_COLUMNS_NAMES = ["type", "seq", "timestamp", "taget_seq", "taget", "mac", "rssi", "rate", "sig_mode", "mcs",
-                          "cwb", "smoothing", "not_sounding", "aggregation", "stbc", "fec_coding","sgi", "noise_floor", 
-                          "ampdu_cnt", "channel_primary", "channel_secondary", "local_timestamp", "ant", "sig_len", 
-                          "rx_state", "agc_gain", "fft_gain", "len", "first_word_invalid", "data"]
-CSI_DATA_TARGETS = ["unknown", "train", "none", "someone", "static", "move", "front",
-                    "after", "left", "right", "go", "jump", "sit down", "stand up", "climb up", "wave", "applause"]
-RADAR_DATA_COLUMNS_NAMES = ["type", "seq", "timestamp",
-                            "waveform_wander", "wander_average", "waveform_wander_threshold", "someone_status", 
-                            "waveform_jitter", "jitter_midean", "waveform_jitter_threshold", "move_status"]
+CSI_DATA_COLUMNS_NAMES = ['type', 'seq', 'timestamp', 'taget_seq', 'taget', 'mac', 'rssi', 'rate', 'sig_mode', 'mcs',
+                          'cwb', 'smoothing', 'not_sounding', 'aggregation', 'stbc', 'fec_coding','sgi', 'noise_floor',
+                          'ampdu_cnt', 'channel_primary', 'channel_secondary', 'local_timestamp', 'ant', 'sig_len',
+                          'rx_state', 'agc_gain', 'fft_gain', 'len', 'first_word_invalid', 'data']
+CSI_DATA_TARGETS = ['unknown', 'train', 'none', 'someone', 'static', 'move', 'front',
+                    'after', 'left', 'right', 'go', 'jump', 'sit down', 'stand up', 'climb up', 'wave', 'applause']
+RADAR_DATA_COLUMNS_NAMES = ['type', 'seq', 'timestamp',
+                            'waveform_wander', 'wander_average', 'waveform_wander_threshold', 'someone_status',
+                            'waveform_jitter', 'jitter_midean', 'waveform_jitter_threshold', 'move_status']
 
 g_csi_amplitude_array = np.zeros(
     [CSI_DATA_INDEX, CSI_DATA_COLUMNS], dtype=np.int32)
 g_rssi_array = np.zeros(CSI_DATA_INDEX, dtype=np.int8)
-g_radio_header_pd = pd.DataFrame(np.zeros([10, len(
-    CSI_DATA_COLUMNS_NAMES[1:-1])], dtype=np.int32), columns=CSI_DATA_COLUMNS_NAMES[1:-1])
+# 使用 object 类型以支持混合数据类型（字符串、数字、时间戳等）
+g_radio_header_pd = pd.DataFrame(np.empty([10, len(
+    CSI_DATA_COLUMNS_NAMES[1:-1])], dtype=object), columns=CSI_DATA_COLUMNS_NAMES[1:-1])
 
-RADAR_STATUS_RECORD = ["room", "human", "spend_time", "start_time", "stop_time"]
+RADAR_STATUS_RECORD = ['room', 'human', 'spend_time', 'start_time', 'stop_time']
 g_status_record_pd = pd.DataFrame(np.zeros(
     [20, len(RADAR_STATUS_RECORD)], dtype=np.str_), columns=RADAR_STATUS_RECORD)
 
-RADAR_MOVE_RECORD = ["date", "hour", "minute", "second", "count"]
+RADAR_MOVE_RECORD = ['date', 'hour', 'minute', 'second', 'count']
 g_move_record_pd = pd.DataFrame(columns=RADAR_MOVE_RECORD)
 
-RADAR_DATA = ["status", "threshold", "value", "max", "min", "mean", "std"]
+RADAR_DATA = ['status', 'threshold', 'value', 'max', 'min', 'mean', 'std']
 g_radar_data_room_pd = pd.DataFrame(
     np.zeros([10, len(RADAR_DATA)], dtype=np.float32), columns=RADAR_DATA)
 g_radar_data_human_pd = pd.DataFrame(
@@ -119,8 +109,8 @@ RADAR_DATA_INDEX = 100  # buffer size
 
 ROOM_STATUS_NAMES = ['none', 'someone']
 HUMAN_STATUS_NAMES = ['static', 'move']
-RADAR_WAVEFORM_NAMES = ["wander", "jitter"]
-RADAR_targetS_NAMES = ["someone", "move"]
+RADAR_WAVEFORM_NAMES = ['wander', 'jitter']
+RADAR_targetS_NAMES = ['someone', 'move']
 RADAR_targetS_LEN = len(RADAR_targetS_NAMES)
 g_radar_eigenvalue_color = [(0, 0, 255), (0, 255, 0)]
 g_radar_eigenvalue_threshold_color = [(255, 255, 0), (255, 0, 255)]
@@ -139,9 +129,41 @@ g_display_eigenvalues_table = False
 
 def base64_decode_bin(str_data):
     try:
-        bin_data = base64.b64decode(str_data)
+        # 清理数据：移除换行符、回车符、空格等无效字符
+        str_data = str(str_data).strip().replace('\n', '').replace('\r', '').replace(' ', '')
+
+        # 如果数据包含日志信息（如 "->valid_len: 104"），只取 base64 部分
+        # 使用更智能的方式检测日志信息：查找常见的日志模式
+        # 例如：">valid_len", ": 104", "(120933)" 等
+        log_patterns = [
+            r'->valid_len',
+            r':\s*\d+',  # 冒号后跟数字（如 ": 104"）
+            r'\(\d+\)',  # 括号中的数字（如 "(120933)"）
+            r'[DIWE]\s*\(',  # 日志级别（如 "I ("）
+        ]
+
+        # 查找日志模式的起始位置，只保留 base64 部分
+        min_log_start = len(str_data)
+        for pattern in log_patterns:
+            import re
+            match = re.search(pattern, str_data)
+            if match:
+                min_log_start = min(min_log_start, match.start())
+
+        # 如果找到日志信息，只保留 base64 部分（至少保留一定长度，避免误判）
+        if min_log_start < len(str_data) and min_log_start > 10:
+            str_data = str_data[:min_log_start]
+
+        # 如果数据长度不是4的倍数，尝试添加填充
+        missing_padding = len(str_data) % 4
+        if missing_padding:
+            str_data += '=' * (4 - missing_padding)
+
+        bin_data = base64.b64decode(str_data, validate=True)
     except Exception as e:
-        print(f"Exception: {e}, data: {str_data}")
+        print(f'Exception: {e}, data: {str_data[:100]}')
+        # 解码失败时返回空列表，避免后续错误
+        return []
 
     list_data = list(bin_data)
 
@@ -158,11 +180,11 @@ def base64_encode_bin(list_data):
             list_data[i] = 256 + list_data[i]
     # print(list_data)
 
-    str_data = "test"
+    str_data = 'test'
     try:
         str_data = base64.b64encode(bytes(list_data)).decode('utf-8')
     except Exception as e:
-        print(f"Exception: {e}, data: {list_data}")
+        print(f'Exception: {e}, data: {list_data}')
     return str_data
 
 
@@ -173,8 +195,8 @@ def get_label(folder_path):
 
 def evaluate_data_send(serial_queue_write, folder_path):
     label = get_label(folder_path)
-    if label == "train":
-        command = f"radar --train_start"
+    if label == 'train':
+        command = f'radar --train_start'
         serial_queue_write.put(command)
 
     tcpCliSock = socket.socket()
@@ -194,7 +216,7 @@ def evaluate_data_send(serial_queue_write, folder_path):
             temp_list = base64_decode_bin(data_pd.loc[index, 'data'])
             # print(f"temp_list: {temp_list}")
             data_str = ','.join(str(value)
-                                for value in data_pd.loc[index]) + "\n"
+                                for value in data_pd.loc[index]) + '\n'
             data_str = data_str.encode('utf-8')
             # print(f"data_str: {data_str}")
             tcpCliSock.send(data_str)
@@ -202,22 +224,23 @@ def evaluate_data_send(serial_queue_write, folder_path):
     tcpCliSock.close()
     time.sleep(1)
 
-    if label == "train":
-        command = "radar --train_stop"
+    if label == 'train':
+        command = 'radar --train_stop'
         serial_queue_write.put(command)
 
     sys.exit(0)
 
 
 class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
-    def __init__(self, serial_queue_write, parent=None):
+    def __init__(self, serial_queue_write, csi_output_type='LLTF', parent=None):
         super(DataGraphicalWindow, self).__init__(parent)
         self.setupUi(self)
+        self.csi_output_type = csi_output_type
         global g_display_raw_data
         global g_display_radar_model
         global display_eigenvalues_table
 
-        with open("./config/gui_config.json") as file:
+        with open('./config/gui_config.json') as file:
             gui_config = json.load(file)
             # print(f"gui_config: {gui_config}")
             if len(gui_config['router_ssid']) > 0:
@@ -290,8 +313,8 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
             curve_eigenvalue = self.graphicsView_eigenvalues.plot(
                 g_radar_eigenvalue_array[:, i], name=RADAR_WAVEFORM_NAMES[i], pen=g_radar_eigenvalue_color[i])
             curve_eigenvalue_threshold = self.graphicsView_eigenvalues.plot(
-                g_radar_eigenvalue_threshold_array[:, i], 
-                name=RADAR_WAVEFORM_NAMES[i] + "_" + RADAR_targetS_NAMES[i] + "_threshold", 
+                g_radar_eigenvalue_threshold_array[:, i],
+                name=RADAR_WAVEFORM_NAMES[i] + '_' + RADAR_targetS_NAMES[i] + '_threshold',
                 pen=g_radar_eigenvalue_threshold_color[i])
             self.curve_radar_eigenvalue.append(curve_eigenvalue)
             self.curve_radar_eigenvalue_threshold.append(
@@ -307,7 +330,7 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
         self.tableView_values = {
             'sig_mode': ['non HT(11bg)', 'HT(11n)', 'VHT(11ac)'],
             'mcs': [f'MSC{i}' for i in range(76)],
-            "cwb": ['20MHz', '40MHz'],
+            'cwb': ['20MHz', '40MHz'],
             'aggregation': ['MPDU', 'AMPDU'],
             'channel_secondary': ['none', 'above', 'below'],
             'stbc': ['non STBC', 'STBC'],
@@ -342,7 +365,7 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
         self.tableView_radar_data_human.horizontalHeader(
         ).setSectionResizeMode(QHeaderView.ResizeToContents)
 
-        evaluate_STATISTICS_COLUMNS_NAMES = ["type", "count", "rate"]
+        evaluate_STATISTICS_COLUMNS_NAMES = ['type', 'count', 'rate']
         self.model_evaluate_statistics = QStandardItemModel(
             len(evaluate_STATISTICS_COLUMNS_NAMES), 3)
         self.model_evaluate_statistics.setHorizontalHeaderLabels(
@@ -391,7 +414,7 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
         self.splitter_raw_data.setStretchFactor(1, 8)
         self.splitter_raw_data.setStretchFactor(2, 2)
 
-        self.textBrowser_log.setStyleSheet("background:black")
+        self.textBrowser_log.setStyleSheet('background:black')
 
         self.timer_boot_command = QTimer()
         self.timer_boot_command.timeout.connect(self.command_boot)
@@ -455,10 +478,10 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
             self.groupBox_raw_data.hide()
             self.timer_curve_subcarrier.stop()
 
-        with open("./config/gui_config.json", "r") as file:
+        with open('./config/gui_config.json', 'r') as file:
             gui_config = json.load(file)
             gui_config['display_raw_data'] = self.checkBox_raw_data.isChecked()
-        with open("./config/gui_config.json", "w") as file:
+        with open('./config/gui_config.json', 'w') as file:
             json.dump(gui_config, file)
 
     def checkBox_radar_model_show(self):
@@ -475,10 +498,10 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
             self.timer_status_record.stop()
             self.timer_curve_radar.stop()
 
-        with open("./config/gui_config.json", "r") as file:
+        with open('./config/gui_config.json', 'r') as file:
             gui_config = json.load(file)
             gui_config['display_radar_model'] = self.checkBox_radar_model.isChecked()
-        with open("./config/gui_config.json", "w") as file:
+        with open('./config/gui_config.json', 'w') as file:
             json.dump(gui_config, file)
 
     def checkBox_display_eigenvalues_table_show(self):
@@ -492,17 +515,17 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
             self.tableView_eigenvalues.hide()
             self.timer_eigenvalues_table.stop()
 
-        with open("./config/gui_config.json", "r") as file:
+        with open('./config/gui_config.json', 'r') as file:
             gui_config = json.load(file)
             gui_config['display_eigenvalues_table'] = self.checkBox_display_eigenvalues_table.isChecked()
-        with open("./config/gui_config.json", "w") as file:
+        with open('./config/gui_config.json', 'w') as file:
             json.dump(gui_config, file)
 
     def show_router_auto_connect(self):
-        with open("./config/gui_config.json", "r") as file:
+        with open('./config/gui_config.json', 'r') as file:
             gui_config = json.load(file)
             gui_config['router_auto_connect'] = self.checkBox_router_auto_connect.isChecked()
-        with open("./config/gui_config.json", "w") as file:
+        with open('./config/gui_config.json', 'w') as file:
             json.dump(gui_config, file)
 
     def median_filtering(self, waveform):
@@ -510,7 +533,7 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
         for i in range(1, waveform.shape[0] - 1):
             outliers_count = 0
             for j in range(waveform.shape[1]):
-                if ((waveform[i - 1, j] - waveform[i, j] > 2 and waveform[i + 1, j] - waveform[i, j] > 2) 
+                if ((waveform[i - 1, j] - waveform[i, j] > 2 and waveform[i + 1, j] - waveform[i, j] > 2)
                 or (waveform[i - 1, j] - waveform[i, j] < -2 and waveform[i + 1, j] - waveform[i, j] < -2)):
                     outliers_count += 1
                     continue
@@ -550,13 +573,18 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
 
         for i in range(g_radio_header_pd.shape[0]):
             for j in range(g_radio_header_pd.shape[1]):
-                if g_radio_header_pd.columns.values[j] in self.tableView_values.keys():
-                    str_values = self.tableView_values[g_radio_header_pd.columns.values[j]][int(
-                        g_radio_header_pd.iloc[i, j])]
-                    item = QStandardItem(str_values)
+                cell_value = g_radio_header_pd.iloc[i, j]
+                if cell_value is None or (isinstance(cell_value, float) and np.isnan(cell_value)):
+                    item = QStandardItem('')
+                elif g_radio_header_pd.columns.values[j] in self.tableView_values.keys():
+                    try:
+                        str_values = self.tableView_values[g_radio_header_pd.columns.values[j]][int(cell_value)]
+                        item = QStandardItem(str_values)
+                    except (ValueError, TypeError, KeyError):
+                        item = QStandardItem(str(cell_value))
                 else:
                     # print(j, g_radio_header_pd.columns.values[j])
-                    item = QStandardItem(g_radio_header_pd.iloc[i, j])
+                    item = QStandardItem(str(cell_value) if cell_value is not None else '')
                 self.model_radio_header.setItem(i, j, item)
 
     def show_curve_subcarrier_filter(self):
@@ -569,7 +597,7 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
             self.curve_radar_eigenvalue_threshold[i].setData(
                 g_radar_eigenvalue_threshold_array[:, i])
 
-        curve_radar_title = f"{ROOM_STATUS_NAMES[g_radar_status_array[-1,0]]} {HUMAN_STATUS_NAMES[g_radar_status_array[-1,1]]}"
+        curve_radar_title = f'{ROOM_STATUS_NAMES[g_radar_status_array[-1,0]]} {HUMAN_STATUS_NAMES[g_radar_status_array[-1,1]]}'
         self.graphicsView_eigenvalues.setTitle(curve_radar_title)
 
     def show_eigenvalue_table(self):
@@ -577,14 +605,14 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
             for j in range(g_radar_data_room_pd.shape[1]):
                 # data_str = "%.5f" % 0.01
                 # print(f"{g_radar_data_room_pd.iloc[i,j]}, {type(g_radar_data_room_pd.iloc[i,j])}")
-                data_str = "%.5f" % g_radar_data_room_pd.iloc[i, j]
+                data_str = '%.5f' % g_radar_data_room_pd.iloc[i, j]
                 item = QStandardItem(data_str)
                 self.model_radar_data_room.setItem(i, j, item)
 
         for i in range(g_radar_data_human_pd.shape[0]):
             for j in range(g_radar_data_human_pd.shape[1]):
                 # print(f"{g_radar_data_human_pd.iloc[i,j]}, {type(g_radar_data_human_pd.iloc[i,j])}")
-                data_str = "%.5f" % g_radar_data_human_pd.iloc[i, j]
+                data_str = '%.5f' % g_radar_data_human_pd.iloc[i, j]
                 item = QStandardItem(data_str)
                 self.model_radar_data_human.setItem(i, j, item)
 
@@ -608,7 +636,7 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
         if self.statistic_config['mode'] == 'day':
             statistic_move_array = np.zeros(24, dtype=np.int32)
             statistic_move_title = datetime.strftime(
-                self.statistic_config['time'], "%Y-%m-%d")
+                self.statistic_config['time'], '%Y-%m-%d')
             statistic_move_pd = g_move_record_pd[g_move_record_pd['date']
                                                  == self.statistic_config['time'].date()]
 
@@ -622,7 +650,7 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
         elif self.statistic_config['mode'] == 'hour':
             statistic_move_array = np.zeros(60, dtype=np.int32)
             statistic_move_title = datetime.strftime(
-                self.statistic_config['time'], "%Y-%m-%d %H")
+                self.statistic_config['time'], '%Y-%m-%d %H')
 
             statistic_move_pd = g_move_record_pd[(g_move_record_pd['date'] == self.statistic_config['time'].date()) & (
                 g_move_record_pd['hour'] == self.statistic_config['time'].time().hour)]
@@ -636,11 +664,11 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
         elif self.statistic_config['mode'] == 'minute':
             statistic_move_array = np.zeros(60, dtype=np.int32)
             statistic_move_title = datetime.strftime(
-                self.statistic_config['time'], "%Y-%m-%d %H:%M")
+                self.statistic_config['time'], '%Y-%m-%d %H:%M')
 
             statistic_move_pd = g_move_record_pd[(g_move_record_pd['date'] == self.statistic_config['time'].date())
                                                  & (g_move_record_pd['hour'] == self.statistic_config['time'].time().hour)
-                                                      & (g_move_record_pd['hour'] == self.statistic_config['time'].time().hour) 
+                                                      & (g_move_record_pd['hour'] == self.statistic_config['time'].time().hour)
                                                  & (g_move_record_pd['hour'] == self.statistic_config['time'].time().hour)
                                                  & (g_move_record_pd['minute'] == self.statistic_config['time'].time().minute)]
 
@@ -668,7 +696,7 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
                 0, len(statistic_move_array))
             # print(statistic_move_title)
             self.graphicsView_status_record.setTitle(
-                statistic_move_title + "  Move Count")
+                statistic_move_title + '  Move Count')
         except Exception as e:
             print(e)
 
@@ -695,13 +723,13 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
                 item = QStandardItem(str(g_evaluate_statistics_array[i][j]))
                 self.model_evaluate_statistics.setItem(row, 1, item)
 
-                data_str = "%.2f%%" % (
+                data_str = '%.2f%%' % (
                     g_evaluate_statistics_array[i][j] * 100 / g_evaluate_statistics_array.sum())
                 item = QStandardItem(data_str)
                 self.model_evaluate_statistics.setItem(row, 2, item)
 
     def command_boot(self):
-        command = f"radar --csi_output_type LLFT --csi_output_format base64"
+        command = f'radar --csi_output_type {self.csi_output_type} --csi_output_format base64'
         self.serial_queue_write.put(command)
 
         if self.checkBox_router_auto_connect.isChecked() and len(self.lineEdit_router_ssid.text()) > 0:
@@ -710,35 +738,38 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
         self.timer_boot_command.stop()
 
     def command_predict_config(self):
-        command = (f"radar --predict_someone_sensitivity {self.doubleSpinBox_predict_someone_sensitivity.value()}" +
-                   f" --predict_move_sensitivity {self.doubleSpinBox_predict_move_sensitivity.value()}")
+        command = (f'radar --predict_someone_sensitivity {self.doubleSpinBox_predict_someone_sensitivity.value()}' +
+                   f' --predict_move_sensitivity {self.doubleSpinBox_predict_move_sensitivity.value()}')
         self.serial_queue_write.put(command)
-        command = (f"radar --predict_buff_size {self.spinBox_predict_buffer_size.text()}" +
-                   f" --predict_outliers_number {self.spinBox_predict_outliers_number.text()}")
+        command = (f'radar --predict_buff_size {self.spinBox_predict_buffer_size.text()}' +
+                   f' --predict_outliers_number {self.spinBox_predict_outliers_number.text()}')
         self.serial_queue_write.put(command)
 
     def command_router_connect(self):
-        if self.pushButton_router_connect.text() == "connect":
-            self.pushButton_router_connect.setText("disconnect")
-            self.pushButton_router_connect.setStyleSheet("color: red")
+        if self.pushButton_router_connect.text() == 'connect':
+            self.pushButton_router_connect.setText('disconnect')
+            self.pushButton_router_connect.setStyleSheet('color: red')
 
-            command = "wifi_config --ssid " + ("\"%s\"" % self.lineEdit_router_ssid.text())
+            command = 'wifi_config --ssid ' + ("\"%s\"" % self.lineEdit_router_ssid.text())
             if len(self.lineEdit_router_password.text()) >= 8:
-                command += " --password " + self.lineEdit_router_password.text()
+                command += ' --password ' + self.lineEdit_router_password.text()
             self.serial_queue_write.put(command)
         else:
-            self.pushButton_router_connect.setText("connect")
-            self.pushButton_router_connect.setStyleSheet("color: black")
-            command = "ping --abort"
+            self.pushButton_router_connect.setText('connect')
+            self.pushButton_router_connect.setStyleSheet('color: black')
+            command = 'ping --abort'
             self.serial_queue_write.put(command)
-            command = "wifi_config --disconnect"
+            command = 'wifi_config --disconnect'
+            self.serial_queue_write.put(command)
+            time.sleep(3)
+            command = 'radar --csi_output_type ' + self.csi_output_type + ' --csi_output_format base64'
             self.serial_queue_write.put(command)
 
-        with open("./config/gui_config.json", "r") as file:
+        with open('./config/gui_config.json', 'r') as file:
             gui_config = json.load(file)
             gui_config['router_ssid'] = self.lineEdit_router_ssid.text()
             gui_config['router_password'] = self.lineEdit_router_password.text()
-        with open("./config/gui_config.json", "w") as file:
+        with open('./config/gui_config.json', 'w') as file:
             json.dump(gui_config, file)
 
     def command_custom(self):
@@ -746,13 +777,13 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
         self.serial_queue_write.put(command)
 
     def command_collect_target_start(self):
-        command = (f"radar --collect_number {self.spinBox_collect_number.value()}" +
-                   f" --collect_tagets {self.comboBox_collect_target.currentText()}" +
-                   f" --collect_duration {self.spinBox_collect_duration.value()}")
+        command = (f'radar --collect_number {self.spinBox_collect_number.value()}' +
+                   f' --collect_tagets {self.comboBox_collect_target.currentText()}' +
+                   f' --collect_duration {self.spinBox_collect_duration.value()}')
         self.serial_queue_write.put(command)
 
     def command_collect_target_stop(self):
-        command = "radar --collect_number 0 --collect_tagets unknown"
+        command = 'radar --collect_number 0 --collect_tagets unknown'
         self.serial_queue_write.put(command)
 
     def spinBox_collect_number_show(self):
@@ -766,9 +797,9 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
             # self.command_collect_target_stop()
             self.spinBox_collect_number.setValue(self.label_number)
             self.timeEdit_collect_delay.setTime(self.label_delay)
-            self.pushButton_collect_start.setStyleSheet("color: black")
-            self.spinBox_collect_number.setStyleSheet("color: black")
-            self.pushButton_collect_start.setText("start")
+            self.pushButton_collect_start.setStyleSheet('color: black')
+            self.spinBox_collect_number.setStyleSheet('color: black')
+            self.pushButton_collect_start.setText('start')
 
     def timeEdit_collect_delay_show(self):
         time_temp = self.timeEdit_collect_delay.time()
@@ -783,11 +814,11 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
             self.timer_collect_duration.setInterval(duration)
             self.timer_collect_duration.start()
             self.command_collect_target_start()
-            self.spinBox_collect_number.setStyleSheet("color: red")
-            self.timeEdit_collect_delay.setStyleSheet("color: black")
+            self.spinBox_collect_number.setStyleSheet('color: red')
+            self.timeEdit_collect_delay.setStyleSheet('color: black')
 
     def pushButton_collect_show(self):
-        if self.pushButton_collect_start.text() == "start":
+        if self.pushButton_collect_start.text() == 'start':
             if self.comboBox_collect_target.currentIndex() == 0 or self.spinBox_collect_number.value() == 0:
                 err = QErrorMessage(self)
                 err.setWindowTitle('Label parameter error')
@@ -796,21 +827,21 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
                 err.show()
                 return
 
-            self.pushButton_collect_start.setText("stop")
-            self.pushButton_collect_start.setStyleSheet("color: red")
-            self.timeEdit_collect_delay.setStyleSheet("color: red")
+            self.pushButton_collect_start.setText('stop')
+            self.pushButton_collect_start.setStyleSheet('color: red')
+            self.timeEdit_collect_delay.setStyleSheet('color: red')
             self.timer_collect_delay.start()
             self.label_number = self.spinBox_collect_number.value()
             self.label_delay = self.timeEdit_collect_delay.time()
         else:
             self.spinBox_collect_number.setValue(self.label_number)
             self.timeEdit_collect_delay.setTime(self.label_delay)
-            self.spinBox_collect_number.setStyleSheet("color: black")
-            self.pushButton_collect_start.setStyleSheet("color: black")
+            self.spinBox_collect_number.setStyleSheet('color: black')
+            self.pushButton_collect_start.setStyleSheet('color: black')
             self.timer_collect_delay.stop()
             self.timer_collect_duration.stop()
             self.command_collect_target_stop()
-            self.pushButton_collect_start.setText("start")
+            self.pushButton_collect_start.setText('start')
 
     def pushButton_collect_clean_show(self):
         folder_path = 'data'
@@ -827,15 +858,15 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
                 os.rmdir(os.path.join(root, name))
 
     def command_train_start(self):
-        command = f"radar --train_start"
+        command = f'radar --train_start'
 
         if self.checkBox_train_add.isChecked():
-            command += " --train_add"
+            command += ' --train_add'
 
         self.serial_queue_write.put(command)
 
     def command_train_stop(self):
-        command = "radar --train_stop"
+        command = 'radar --train_stop'
         self.serial_queue_write.put(command)
 
     def spinBox_train_duration_show(self):
@@ -849,9 +880,9 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
             self.command_train_stop()
             self.timeEdit_train_delay.setTime(self.train_delay)
             self.timeEdit_train_duration.setTime(self.train_duration)
-            self.timeEdit_train_duration.setStyleSheet("color: black")
-            self.pushButton_train_start.setText("start")
-            self.pushButton_train_start.setStyleSheet("color: black")
+            self.timeEdit_train_duration.setStyleSheet('color: black')
+            self.pushButton_train_start.setText('start')
+            self.pushButton_train_start.setStyleSheet('color: black')
 
     def timeEdit_train_delay_show(self):
         time_temp = self.timeEdit_train_delay.time()
@@ -863,11 +894,11 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
             self.timer_train_delay.stop()
             self.command_train_start()
             self.spinBox_train_duration_show()
-            self.timeEdit_train_duration.setStyleSheet("color: red")
-            self.timeEdit_train_delay.setStyleSheet("color: black")
+            self.timeEdit_train_duration.setStyleSheet('color: red')
+            self.timeEdit_train_delay.setStyleSheet('color: black')
 
     def pushButton_train_show(self):
-        if self.pushButton_train_start.text() == "start":
+        if self.pushButton_train_start.text() == 'start':
             reply = QMessageBox.question(self, 'Note', 'During environmental calibration, it must be ensured that no one is in the room',
                                          QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Yes)
             if reply == QMessageBox.Cancel:
@@ -875,9 +906,9 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
 
             self.train_delay = self.timeEdit_train_delay.time()
             self.train_duration = self.timeEdit_train_duration.time()
-            self.pushButton_train_start.setText("stop")
-            self.pushButton_train_start.setStyleSheet("color: red")
-            self.timeEdit_train_delay.setStyleSheet("color: red")
+            self.pushButton_train_start.setText('stop')
+            self.pushButton_train_start.setStyleSheet('color: red')
+            self.timeEdit_train_delay.setStyleSheet('color: red')
 
             self.timeEdit_train_delay_show()
         else:
@@ -886,8 +917,8 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
             self.command_train_stop()
             self.timeEdit_train_delay.setTime(self.train_delay)
             self.timeEdit_train_duration.setTime(self.train_duration)
-            self.pushButton_train_start.setText("start")
-            self.pushButton_train_start.setStyleSheet("color: black")
+            self.pushButton_train_start.setText('start')
+            self.pushButton_train_start.setStyleSheet('color: black')
 
     def comboBox_command_show(self):
         self.lineEdit_command.setText(self.comboBox_command.currentText())
@@ -897,14 +928,14 @@ class DataGraphicalWindow(QMainWindow, Ui_MainWindow):
         # self.textBrowser_log.moveCursor(self.textBrowser_log.textCursor().End)
 
     def closeEvent(self, event):
-        self.serial_queue_write.put("exit")
+        self.serial_queue_write.put('exit')
         time.sleep(0.5)
         event.accept()
 
         try:
             os._exit(0)
         except Exception as e:
-            print(f"GUI closeEvent: {e}")
+            print(f'GUI closeEvent: {e}')
 
 
 def csi_data_handle(self, data):
@@ -914,10 +945,32 @@ def csi_data_handle(self, data):
     g_radio_header_pd.iloc[1:] = g_radio_header_pd.iloc[:-1]
 
     csi_raw_data = data['data']
-    for i in range(CSI_DATA_COLUMNS):
-        data_complex = complex(csi_raw_data[csi_vaid_subcarrier_index[i] * 2],
-                               csi_raw_data[csi_vaid_subcarrier_index[i] * 2 - 1])
-        g_csi_amplitude_array[-1][i] = np.abs(data_complex)
+    data_len = int(data['len']) if 'len' in data else len(csi_raw_data)
+
+    if data_len == 104:
+        for i in range(CSI_DATA_COLUMNS):
+            idx = csi_vaid_subcarrier_index[i]
+
+            if idx * 4 + 3 >= len(csi_raw_data):
+                return
+            real_high = csi_raw_data[idx * 4 + 1]
+            imag_high = csi_raw_data[idx * 4 + 3]
+            real_low = csi_raw_data[idx * 4] & 0xFF
+            imag_low = csi_raw_data[idx * 4 + 2] & 0xFF
+
+            real = (((int(real_high) << 12) >> 4) | real_low)
+            imag = (((int(imag_high) << 12) >> 4) | imag_low)
+            if real > 32767:
+                real = real - 65536
+            if imag > 32767:
+                imag = imag - 65536
+
+            g_csi_amplitude_array[-1][i] = np.abs(complex(real, imag))
+    else:
+        for i in range(CSI_DATA_COLUMNS):
+            if csi_vaid_subcarrier_index[i]*2+1 >= len(csi_raw_data):
+                return
+            g_csi_amplitude_array[-1][i] = np.abs(complex(csi_raw_data[csi_vaid_subcarrier_index[i]*2], csi_raw_data[csi_vaid_subcarrier_index[i]*2+1]))
 
     g_rssi_array[-1] = data['rssi']
     g_radio_header_pd.loc[0] = data[1:len(CSI_DATA_COLUMNS_NAMES)-1]
@@ -939,10 +992,10 @@ def radar_data_handle(self, data):
         data['timestamp'], '%Y-%m-%d %H:%M:%S.%f')
 
     for taget_index in range(RADAR_targetS_LEN):
-        g_radar_eigenvalue_array[-1][taget_index] = data[f"waveform_{RADAR_WAVEFORM_NAMES[taget_index]}"]
+        g_radar_eigenvalue_array[-1][taget_index] = data[f'waveform_{RADAR_WAVEFORM_NAMES[taget_index]}']
         g_radar_eigenvalue_threshold_array[-1][taget_index] = data[
-            f"waveform_{RADAR_WAVEFORM_NAMES[taget_index]}_threshold"]
-        g_radar_status_array[-1][taget_index] = data[f"{RADAR_targetS_NAMES[taget_index]}_status"]
+            f'waveform_{RADAR_WAVEFORM_NAMES[taget_index]}_threshold']
+        g_radar_status_array[-1][taget_index] = data[f'{RADAR_targetS_NAMES[taget_index]}_status']
 
     if g_radar_status_array[-1][0] != g_radar_status_array[-2][0] or g_radar_status_array[-1][1] != g_radar_status_array[-2][1]:
         g_status_record_pd[1:] = g_status_record_pd[:-1]
@@ -958,7 +1011,7 @@ def radar_data_handle(self, data):
         temp_time = g_current_time - \
             datetime.strptime(
                 g_status_record_pd.loc[0, 'start_time'], '%Y-%m-%d %H:%M:%S.%f')
-        g_status_record_pd.loc[0, 'spend_time'] = f"{temp_time}"[:-3]
+        g_status_record_pd.loc[0, 'spend_time'] = f'{temp_time}'[:-3]
 
     if g_radar_status_array[-1][1]:
         index = len(g_move_record_pd)
@@ -967,7 +1020,7 @@ def radar_data_handle(self, data):
 
     g_evaluate_statistics_array[g_radar_status_array[-1,
                                                    0], g_radar_status_array[-1, 1]] += 1
-    if (g_radar_eigenvalue_threshold_array[-1, 0] != g_radar_eigenvalue_threshold_array[-2, 0] 
+    if (g_radar_eigenvalue_threshold_array[-1, 0] != g_radar_eigenvalue_threshold_array[-2, 0]
         or g_radar_eigenvalue_threshold_array[-1, 1] != g_radar_eigenvalue_threshold_array[-2, 1]):
         self.signal_wareform_threshold.emit()
 
@@ -1024,19 +1077,19 @@ class DataHandleThread(QThread):
                 radar_data_handle(self, series)
             elif series['type'] == 'LOG_DATA' and g_display_raw_data:
                 if series['tag'] == 'I':
-                    color = "green"
+                    color = 'green'
                 elif series['tag'] == 'W':
-                    color = "yellow"
+                    color = 'yellow'
                 elif series['tag'] == 'E':
-                    color = "red"
+                    color = 'red'
                 else:
-                    color = "white"
+                    color = 'white'
 
                 data = "<font color=\'%s\'>%s (%s) %s <font>" % (
                     color, series['tag'], series['timestamp'], series['data'])
                 self.signal_log_msg.emit(data)
             elif series['type'] == 'FAIL_EVENT':
-                print(f"Fial: {series['data']}")
+                print(f"Failed: {series['data']}")
 
                 self.signal_exit.emit()
                 time.sleep(1)
@@ -1049,20 +1102,20 @@ class DataHandleThread(QThread):
 
 def serial_handle(queue_read, queue_write, port):
     try:
-        ser = serial.Serial(port=port, baudrate=2000000,
+        set = serial.Serial(port=port, baudrate=2000000,
                             bytesize=8, parity='N', stopbits=1, timeout=0.1)
     except Exception as e:
-        print(f"serial_handle: {e}")
+        print(f'serial_handle: {e}')
         data_series = pd.Series(index=['type', 'data'],
-                                data=['FAIL_EVENT', "Failed to open serial port"])
+                                data=['FAIL_EVENT', 'Failed to open serial port'])
         queue_read.put(data_series)
         sys.exit()
         return
 
-    print("open serial port: ", port)
+    print('open serial port: ', port)
 
     # Wait a second to let the port initialize
-    ser.flushInput()
+    set.flushInput()
 
     folder_list = ['log', 'data']
     for folder in folder_list:
@@ -1070,9 +1123,9 @@ def serial_handle(queue_read, queue_write, port):
             mkdir(folder)
 
     data_valid_list = pd.DataFrame(columns=['type', 'columns_names', 'file_name', 'file_fd', 'file_writer'],
-                                   data=[["CSI_DATA", CSI_DATA_COLUMNS_NAMES, "log/csi_data.csv", None, None],
-                                         ["RADAR_DADA", RADAR_DATA_COLUMNS_NAMES, "log/radar_data.csv", None, None],
-                                         ["DEVICE_INFO", DEVICE_INFO_COLUMNS_NAMES, "log/device_info.csv", None, None]])
+                                   data=[['CSI_DATA', CSI_DATA_COLUMNS_NAMES, 'log/csi_data.csv', None, None],
+                                         ['RADAR_DADA', RADAR_DATA_COLUMNS_NAMES, 'log/radar_data.csv', None, None],
+                                         ['DEVICE_INFO', DEVICE_INFO_COLUMNS_NAMES, 'log/device_info.csv', None, None]])
 
     for data_valid in data_valid_list.iloc:
         # print(type(data_valid), data_valid)
@@ -1081,33 +1134,33 @@ def serial_handle(queue_read, queue_write, port):
         data_valid['file_writer'] = csv.writer(data_valid['file_fd'])
         data_valid['file_writer'].writerow(data_valid['columns_names'])
 
-    log_data_writer = open("log/log_data.txt", 'w+')
+    log_data_writer = open('log/log_data.txt', 'w+')
     taget_last = 'unknown'
     taget_seq_last = 0
 
-    ser.write("restart\r\n".encode('utf-8'))
+    set.write('restart\r\n'.encode('utf-8'))
     time.sleep(0.01)
 
     while True:
         if not queue_write.empty():
             command = queue_write.get()
 
-            if command == "exit":
+            if command == 'exit':
                 sys.exit()
                 break
 
-            command = command + "\r\n"
-            ser.write(command.encode('utf-8'))
-            print(f"{datetime.now()}, serial write: {command}")
+            command = command + '\r\n'
+            set.write(command.encode('utf-8'))
+            print(f'{datetime.now()}, serial write: {command}')
             continue
 
         try:
-            strings = str(ser.readline())
+            strings = str(set.readline())
             if not strings:
                 continue
         except Exception as e:
             data_series = pd.Series(index=['type', 'data'],
-                                    data=['FAIL_EVENT', "Failed to read serial"])
+                                    data=['FAIL_EVENT', 'Failed to read serial'])
             queue_read.put(data_series)
             sys.exit()
 
@@ -1120,10 +1173,41 @@ def serial_handle(queue_read, queue_write, port):
             index = strings.find(data_valid['type'])
             if index >= 0:
                 strings = strings[index:]
+                # 只取第一行，避免日志信息混入
+                first_line_end = strings.find('\n')
+                if first_line_end > 0:
+                    strings = strings[:first_line_end]
+                # 移除可能的回车符
+                strings = strings.rstrip('\r')
+
                 csv_reader = csv.reader(StringIO(strings))
-                data = next(csv_reader)
+                try:
+                    data = next(csv_reader)
+                except StopIteration:
+                    continue
 
                 if len(data) == len(data_valid['columns_names']):
+                    # 清理 base64 数据字段（最后一个字段），移除可能的日志信息
+                    if data_valid['type'] == 'CSI_DATA' and len(data) > 0:
+                        data_field = data[-1]
+                        # 使用正则表达式查找日志模式，只保留 base64 部分
+                        log_patterns = [
+                            r'->valid_len',
+                            r':\s*\d+',  # 冒号后跟数字
+                            r'\(\d+\)',  # 括号中的数字
+                            r'[DIWE]\s*\(',  # 日志级别
+                        ]
+
+                        min_log_start = len(data_field)
+                        for pattern in log_patterns:
+                            match = re.search(pattern, data_field)
+                            if match:
+                                min_log_start = min(min_log_start, match.start())
+
+                        # 如果找到日志信息且位置合理（避免误判），只保留 base64 部分
+                        if min_log_start < len(data_field) and min_log_start > 10:
+                            data[-1] = data_field[:min_log_start]
+
                     data_series = pd.Series(
                         data, index=data_valid['columns_names'])
 
@@ -1141,6 +1225,10 @@ def serial_handle(queue_read, queue_write, port):
                             # csi_raw_data = json.loads(data_series['data'])
                             csi_raw_data = base64_decode_bin(
                                 data_series['data'])
+                            # 如果解码失败返回空列表，跳过这条数据
+                            if len(csi_raw_data) == 0:
+                                print(f"CSI_DATA decode failed, skipping data: {data_series['data'][:50]}...")
+                                break
                             if len(csi_raw_data) != int(data_series['len']):
                                 # if len(csi_raw_data) != 104 and len(csi_raw_data) != 216 and len(csi_raw_data) != 328 and len(csi_raw_data) != 552:
                                 print(
@@ -1187,7 +1275,7 @@ def serial_handle(queue_read, queue_write, port):
                     break
         else:
             strings = re.sub(r'\\x1b.*?m', '', strings)
-            log_data_writer.writelines(strings + "\n")
+            log_data_writer.writelines(strings + '\n')
 
             log = re.match(r'.*([DIWE]) \((\d+)\) (.*)', strings, re.I)
 
@@ -1201,22 +1289,26 @@ def serial_handle(queue_read, queue_write, port):
 
 
 def quit(signum, frame):
-    print("Exit the system")
+    print('Exit the system')
     sys.exit()
 
 
 if __name__ == '__main__':
     if sys.version_info < (3, 6):
-        print(" Python version should >= 3.6")
+        print(' Python version should >= 3.6')
         exit()
 
     parser = argparse.ArgumentParser(
-        description="Read CSI data from serial port and display it graphically")
+        description='Read CSI data from serial port and display it graphically')
     parser.add_argument('-p', '--port', dest='port', action='store', required=True,
-                        help="Serial port number of csv_recv device")
+                        help='Serial port number of csv_recv device')
+    parser.add_argument('-t', '--csi_output_type', dest='csi_output_type', action='store',
+                        choices=['LLTF', 'HT_LTF', 'HE_LTF', 'STBC-HT-LTF', 'STBC-HE-LTF'], default='LLTF',
+                        help='CSI output type: LLTF, HT_LTF, HE_LTF, STBC-HT-LTF, or STBC-HE-LTF (default: LLTF)')
 
     args = parser.parse_args()
     serial_port = args.port
+    csi_output_type = args.csi_output_type
 
     serial_queue_read = Queue(maxsize=64)
     serial_queue_write = Queue(maxsize=64)
@@ -1231,7 +1323,7 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     app.setWindowIcon(QIcon('../../../docs/_static/icon.png'))
 
-    window = DataGraphicalWindow(serial_queue_write)
+    window = DataGraphicalWindow(serial_queue_write, csi_output_type)
     data_handle_thread = DataHandleThread(serial_queue_read)
     data_handle_thread.signal_device_info.connect(window.show_device_info)
     data_handle_thread.signal_log_msg.connect(window.show_textBrowser_log)

@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 /* Wi-Fi CSI console Example
 
    This example code is in the Public Domain (or CC0 licensed, at your option.)
@@ -69,7 +74,6 @@ static char *TAG = "radar_evaluate";
 static char g_wifi_radar_cb_ctx[32] = {0};
 static TaskHandle_t g_tcp_server_task_handle = NULL;
 
-
 static void csi_info_analysis(char *data, size_t size)
 {
     uint8_t column = 0;
@@ -90,7 +94,7 @@ static void csi_info_analysis(char *data, size_t size)
 
     wifi_csi_filtered_info_t *filtered_info = malloc(sizeof(wifi_csi_filtered_info_t) + 52 * 2);
     mbedtls_base64_decode((uint8_t *)filtered_info->valid_data, 52 * 2, (size_t *)&filtered_info->valid_len, (uint8_t *)csi_data->data, strlen(csi_data->data));
-    filtered_info->rx_ctrl.timestamp = atoi(csi_data->local_timestamp);
+    filtered_info->rx_ctrl_info.timestamp = atoi(csi_data->local_timestamp);
     strcpy(g_wifi_radar_cb_ctx, csi_data->timestamp);
     // ESP_LOGI(TAG,"count: %s, timestamp: %d", csi_data->id, filtered_info->rx_ctrl.timestamp);
 
@@ -178,10 +182,10 @@ static void tcp_server_task(void *arg)
         char *rx_buffer = malloc(RX_BUFFER_SIZE);
         size_t buf_size = 0;
 
-        wifi_radar_config_t radar_config = {0};
+        esp_radar_config_t radar_config = {0};
         esp_radar_get_config(&radar_config);
-        radar_config.wifi_radar_cb_ctx = g_wifi_radar_cb_ctx;
-        esp_radar_set_config(&radar_config);
+        radar_config.dec_config.wifi_radar_cb_ctx = g_wifi_radar_cb_ctx;
+        esp_radar_change_config(&radar_config);
 
         do {
             len = recv(sock, rx_buffer + buf_size, RX_BUFFER_SIZE - buf_size - 1, 0);
@@ -231,8 +235,8 @@ static void tcp_server_task(void *arg)
 
         vTaskDelay(pdMS_TO_TICKS(1000));
         esp_radar_get_config(&radar_config);
-        radar_config.wifi_radar_cb_ctx = NULL;
-        esp_radar_set_config(&radar_config);
+        radar_config.dec_config.wifi_radar_cb_ctx = NULL;
+        esp_radar_change_config(&radar_config);
     }
 
 CLEAN_UP:
@@ -240,7 +244,6 @@ CLEAN_UP:
     g_tcp_server_task_handle = NULL;
     vTaskDelete(NULL);
 }
-
 
 esp_err_t radar_evaluate_server(uint32_t port)
 {
