@@ -48,6 +48,8 @@ static led_strip_handle_t led_strip;
 #define WS2812_GPIO 18
 #elif CONFIG_IDF_TARGET_ESP32C3
 #define WS2812_GPIO 8
+#else
+#define WS2812_GPIO 4
 #endif
 #define RECV_ESPNOW_CSI
 #define CONFIG_LESS_INTERFERENCE_CHANNEL    11

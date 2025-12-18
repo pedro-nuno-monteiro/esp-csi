@@ -1,4 +1,4 @@
-version: "0.8.0"
+version: "0.3.0"
 description: This package provides algorithmic functionality for ESP-CSI human movement and presence detection for easy integration into products.
 url: https://github.com/espressif/esp-csi/tree/master/esp-radar
 issues: https://github.com/espressif/esp-csi/issues
@@ -9,13 +9,15 @@ targets:
   - esp32c3
   - esp32c5
   - esp32c6
-  - esp32c61
 dependencies:
-  idf: ">=4.4.1"
+  idf: ">=5.4"
   cmake_utilities: "0.*"
   esp_csi_gain_ctrl:
     version: ">=0.1.0"
     override_path: ../esp_csi_gain_ctrl
-examples:
-  - path: ../../examples/esp-radar/connect_rainmaker
-  - path: ../../examples/esp-radar/console_test
+files:
+  exclude:
+    - "**/build*/**/*"
+sbom:
+  supplier: 'Organization: Espressif Systems (Shanghai) CO LTD'
+  originator: 'Organization: Espressif Systems (Shanghai) CO LTD'

@@ -22,7 +22,7 @@ idf.py create-project-from-example "espressif/esp-radar=*:console_test"
 
 Then the example will be downloaded in current folder, you can check into it for build and flash.
 
-> You can use this command to download other examples. Or you can download examples from esp-radar repository: 
+> You can use this command to download other examples. Or you can download examples from esp-radar repository:
 
  - [connect_rainmaker](https://github.com/espressif/esp-csi/tree/master/examples/esp-radar/connect_rainmaker): Adding Wi-Fi CSI Functionality in ESP RainMaker
  - [console_test](https://github.com/espressif/esp-csi/tree/master/examples/esp-radar/console_test): This example provides a test platform for Wi-Fi CSI, which includes functions such as data display, data acquisition and data analysis, which can help you quickly understand Wi-Fi CSI
