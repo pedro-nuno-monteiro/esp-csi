@@ -1,16 +1,8 @@
-// Copyright 2021 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2021-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <errno.h>
 #include <string.h>
@@ -27,6 +19,7 @@
 #include "esp_err.h"
 #include "esp_wifi.h"
 #include "esp_console.h"
+#include "esp_netif.h"
 
 #include "lwip/inet.h"
 #include "lwip/netdb.h"
@@ -107,7 +100,11 @@ static int wifi_cmd_sta(int argc, char **argv)
     }
 
     if (!s_netif_sta) {
-        s_netif_sta = esp_netif_create_default_wifi_sta();
+        // 检查是否已经存在默认的STA netif（可能由esp_radar_wifi_init创建）
+        s_netif_sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+        if (!s_netif_sta) {
+            s_netif_sta = esp_netif_create_default_wifi_sta();
+        }
     }
 
     strlcpy((char *) wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid));
@@ -257,7 +254,6 @@ void cmd_register_wifi(void)
     ESP_ERROR_CHECK(esp_console_cmd_register(&query_cmd));
 }
 
-
 static struct {
     struct arg_str *country_code;
     struct arg_int *channel;
@@ -305,7 +301,11 @@ static int wifi_config_func(int argc, char **argv)
     esp_wifi_get_mode(&mode);
 
     if (!s_netif_sta && mode != WIFI_MODE_STA) {
-        s_netif_sta = esp_netif_create_default_wifi_sta();
+        // 检查是否已经存在默认的STA netif（可能由esp_radar_wifi_init创建）
+        s_netif_sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+        if (!s_netif_sta) {
+            s_netif_sta = esp_netif_create_default_wifi_sta();
+        }
     }
 
     if (wifi_config_args.ssid->count) {
@@ -430,8 +430,6 @@ static int wifi_config_func(int argc, char **argv)
         ESP_ERROR_CHECK(esp_wifi_set_protocol(ESP_IF_WIFI_STA, wifi_config_args.protocol->ival[0]));
     }
 
-
-
     return ret;
 }
 
@@ -547,7 +545,6 @@ static esp_err_t wifi_scan_func(int argc, char **argv)
                  ap_record.ssid, MAC2STR(ap_record.bssid),
                  ap_record.primary, ap_record.rssi);
     }
-
 
     if (channel > 0 && channel < 13) {
         ESP_ERROR_CHECK(esp_wifi_set_channel(channel, second));

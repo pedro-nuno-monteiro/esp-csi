@@ -47,7 +47,7 @@ git submodule update --init --recursive
     # Install python related dependencies
     pip install -r requirements.txt
     # Graphical display
-    python esp_csi_tool.py -p /dev/ttyUSB1
+    python esp_csi_tool.py -p /dev/ttyUSB1 -t LLTF
     ```
 + 运行成功后，打开如下 CSI 数据实时可视化界面，界面左侧为数据显示界面，右侧为数据模型界面：
 ![csi_tool界面](./docs/_static/3.3_csi_tool.png)

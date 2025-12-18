@@ -47,7 +47,7 @@ git submodule update --init --recursive
     # Install python related dependencies
     pip install -r requirements.txt
     # Graphical display
-    python esp_csi_tool.py -p /dev/ttyUSB1
+    python esp_csi_tool.py -p /dev/ttyUSB1 -t LLTF
     ```
 + After running successfully, the following CSI data visualization interface is opened. The left side of the interface is the data display interface `Raw data`, and the right side is the data model interface `Raw model`:![csi tool](./docs/_static/3.3_csi_tool.png)
 

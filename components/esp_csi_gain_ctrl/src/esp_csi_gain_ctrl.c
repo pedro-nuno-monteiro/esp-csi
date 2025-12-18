@@ -103,7 +103,7 @@ static esp_err_t esp_csi_gain_ctrl_calculate_gain_baseline(uint8_t* agc_gain, in
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (g_rx_gain_record->baseline_count < FIX_GAIN_BUFF_SIZE) {
+    if (g_rx_gain_record.baseline_count < FIX_GAIN_BUFF_SIZE) {
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -112,8 +112,8 @@ static esp_err_t esp_csi_gain_ctrl_calculate_gain_baseline(uint8_t* agc_gain, in
         return ESP_ERR_NO_MEM;
     }
     for (uint32_t i = 0; i < FIX_GAIN_BUFF_SIZE; i++) {
-        tmp[i].agc = g_rx_gain_record->agc_gain_buff[i];
-        tmp[i].fft = g_rx_gain_record->fft_gain_buff[i];
+        tmp[i].agc = g_rx_gain_record.agc_gain_buff[i];
+        tmp[i].fft = g_rx_gain_record.fft_gain_buff[i];
     }
 
     qsort(tmp, FIX_GAIN_BUFF_SIZE, sizeof(gain_pair_t), cmp_gain_pair_by_agc);
@@ -129,14 +129,14 @@ static esp_err_t esp_csi_gain_ctrl_calculate_gain_baseline(uint8_t* agc_gain, in
 
 esp_err_t esp_csi_gain_ctrl_record_rx_gain(uint8_t agc_gain, int8_t fft_gain)
 {
-    uint32_t index = g_rx_gain_record->count % FIX_GAIN_BUFF_SIZE;
-    g_rx_gain_record->agc_gain_buff[index] = agc_gain;
-    g_rx_gain_record->fft_gain_buff[index] = fft_gain;
+    uint32_t index = g_rx_gain_record.count % FIX_GAIN_BUFF_SIZE;
+    g_rx_gain_record.agc_gain_buff[index] = agc_gain;
+    g_rx_gain_record.fft_gain_buff[index] = fft_gain;
 
-    g_rx_gain_record->count++;
-    if (g_rx_gain_record->baseline_count < FIX_GAIN_BUFF_SIZE) {
-        g_rx_gain_record->baseline_count++;
-        if (g_rx_gain_record->baseline_count == FIX_GAIN_BUFF_SIZE) {
+    g_rx_gain_record.count++;
+    if (g_rx_gain_record.baseline_count < FIX_GAIN_BUFF_SIZE) {
+        g_rx_gain_record.baseline_count++;
+        if (g_rx_gain_record.baseline_count == FIX_GAIN_BUFF_SIZE) {
             esp_csi_gain_ctrl_calculate_gain_baseline(&g_agc_gain_baseline, &g_fft_gain_baseline);
         }
     }
@@ -149,14 +149,14 @@ esp_err_t esp_csi_gain_ctrl_set_rx_force_gain(uint8_t agc_gain, int8_t fft_gain)
         phy_force_rx_gain(false, 0);
         phy_fft_scale_force(false, 0);
 
-        g_rx_gain_record->force_en = false;
+        g_rx_gain_record.force_en = false;
     } else {
         if (agc_gain <= 25) {
             ESP_LOGE(TAG, "Fixed rx gain failed, 'rx_gain <= 25' will prevent wifi packets from being sent out properly");
             return ESP_ERR_INVALID_STATE;
         }
 
-        g_rx_gain_record->force_en = true;
+        g_rx_gain_record.force_en = true;
         phy_force_rx_gain(true, agc_gain);
         phy_fft_scale_force(true, (uint8_t)fft_gain);
     }
@@ -168,17 +168,12 @@ void esp_csi_gain_ctrl_reset_rx_gain_baseline(void)
 {
     g_agc_gain_baseline = 0;
     g_fft_gain_baseline = 0;
-    g_rx_gain_record->baseline_count = 0;
+    g_rx_gain_record.baseline_count = 0;
 }
 
 esp_err_t esp_csi_gain_ctrl_get_gain_compensation(float *compensate_gain, uint8_t agc_gain, int8_t fft_gain)
 {
-
-    if (!g_rx_gain_record) {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    if (g_rx_gain_record->baseline_count < FIX_GAIN_BUFF_SIZE) {
+    if (g_rx_gain_record.baseline_count < FIX_GAIN_BUFF_SIZE) {
         g_agc_gain_baseline = 0;
         g_fft_gain_baseline = 0;
         return ESP_ERR_INVALID_STATE;

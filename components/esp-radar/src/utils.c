@@ -12,7 +12,7 @@
 #include <math.h>
 #include <stdbool.h>
 
-#include "esp_radar_t.h"
+#include "esp_radar.h"
 
 float avg(const float *a, size_t len)
 {

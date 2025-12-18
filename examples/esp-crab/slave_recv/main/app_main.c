@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 /* Esp-crab Example
 
    This example code is in the Public Domain (or CC0 licensed, at your option.)
@@ -23,10 +28,10 @@
 #include "app_uart.h"
 #include "IQmathLib.h"
 #include "bsp_C5_dual_antenna.h"
-#include "esp_radar.h"
+#include "esp_csi_gain_ctrl.h"
 
 #define CONFIG_LESS_INTERFERENCE_CHANNEL    40
-#define CONFIG_WIFI_BAND_MODE               WIFI_BAND_MODE_5G_ONLY   
+#define CONFIG_WIFI_BAND_MODE               WIFI_BAND_MODE_5G_ONLY
 #define CONFIG_WIFI_2G_BANDWIDTHS           WIFI_BW_HT40
 #define CONFIG_WIFI_5G_BANDWIDTHS           WIFI_BW_HT40
 #define CONFIG_WIFI_2G_PROTOCOL             WIFI_PROTOCOL_11N
@@ -36,8 +41,7 @@
 #define CONFIG_FORCE_GAIN                   0   // 1:force gain control, 0:automatic gain control
 #define CONFIG_PRINT_CSI_DATA               1
 
-
-int64_t time_zero=0;
+int64_t time_zero = 0;
 typedef struct {
     uint32_t id;
     uint32_t time;
@@ -59,7 +63,7 @@ static void wifi_init()
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
     ESP_ERROR_CHECK(esp_wifi_start());
-    
+
     esp_wifi_set_band_mode(CONFIG_WIFI_BAND_MODE);
     wifi_protocols_t protocols = {
         .ghz_2g = CONFIG_WIFI_2G_PROTOCOL,
@@ -75,27 +79,28 @@ static void wifi_init()
 
     ESP_ERROR_CHECK(esp_wifi_start());
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
-    
-    if ((CONFIG_WIFI_BAND_MODE == WIFI_BAND_MODE_2G_ONLY && CONFIG_WIFI_2G_BANDWIDTHS == WIFI_BW_HT20) || (CONFIG_WIFI_BAND_MODE == WIFI_BAND_MODE_5G_ONLY && CONFIG_WIFI_5G_BANDWIDTHS == WIFI_BW_HT20))
+
+    if ((CONFIG_WIFI_BAND_MODE == WIFI_BAND_MODE_2G_ONLY && CONFIG_WIFI_2G_BANDWIDTHS == WIFI_BW_HT20) || (CONFIG_WIFI_BAND_MODE == WIFI_BAND_MODE_5G_ONLY && CONFIG_WIFI_5G_BANDWIDTHS == WIFI_BW_HT20)) {
         ESP_ERROR_CHECK(esp_wifi_set_channel(CONFIG_LESS_INTERFERENCE_CHANNEL, WIFI_SECOND_CHAN_NONE));
-    else
+    } else {
         ESP_ERROR_CHECK(esp_wifi_set_channel(CONFIG_LESS_INTERFERENCE_CHANNEL, WIFI_SECOND_CHAN_BELOW));
+    }
 
     ESP_ERROR_CHECK(esp_wifi_set_mac(WIFI_IF_STA, CONFIG_CSI_SEND_MAC));
 }
 
-static void wifi_esp_now_init(esp_now_peer_info_t peer) 
+static void wifi_esp_now_init(esp_now_peer_info_t peer)
 {
     ESP_ERROR_CHECK(esp_now_init());
     ESP_ERROR_CHECK(esp_now_set_pmk((uint8_t *)"pmk1234567890123"));
     esp_now_rate_config_t rate_config = {
-        .phymode = CONFIG_ESP_NOW_PHYMODE, 
-        .rate = WIFI_PHY_RATE_MCS0_LGI,    
-        .ersu = false,                     
-        .dcm = false                       
+        .phymode = CONFIG_ESP_NOW_PHYMODE,
+        .rate = WIFI_PHY_RATE_MCS0_LGI,
+        .ersu = false,
+        .dcm = false
     };
     ESP_ERROR_CHECK(esp_now_add_peer(&peer));
-    ESP_ERROR_CHECK(esp_now_set_peer_rate_config(peer.peer_addr,&rate_config));
+    ESP_ERROR_CHECK(esp_now_set_peer_rate_config(peer.peer_addr, &rate_config));
 
 }
 
@@ -113,25 +118,25 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
 
     const wifi_pkt_rx_ctrl_t *rx_ctrl = &info->rx_ctrl;
     static int s_count = 0;
-    static uint8_t agc_gain=0; 
-    static int8_t fft_gain=0; 
+    static uint8_t agc_gain = 0;
+    static int8_t fft_gain = 0;
 #if CONFIG_GAIN_CONTROL
-    static uint8_t agc_gain_baseline=0; 
-    static int8_t fft_gain_baseline=0; 
-    esp_radar_get_rx_gain(info,&agc_gain,&fft_gain);
-    if (s_count<100) {
-        esp_radar_record_rx_gain(agc_gain, fft_gain);
-    }else if (s_count == 100) {
-        esp_radar_get_rx_gain_baseline(&agc_gain_baseline, &fft_gain_baseline);
-        #if CONFIG_FORCE_GAIN 
-        esp_radar_set_rx_force_gain(agc_gain_baseline, fft_gain_baseline);
-        ESP_LOGI(TAG,"fft_force %d, agc_force %d",fft_gain_baseline,agc_gain_baseline);
-        #endif
+    static uint8_t agc_gain_baseline = 0;
+    static int8_t fft_gain_baseline = 0;
+    esp_csi_gain_ctrl_get_rx_gain(info, &agc_gain, &fft_gain);
+    if (s_count < 100) {
+        esp_csi_gain_ctrl_record_rx_gain(agc_gain, fft_gain);
+    } else if (s_count == 100) {
+        esp_csi_gain_ctrl_get_rx_gain_baseline(&agc_gain_baseline, &fft_gain_baseline);
+#if CONFIG_FORCE_GAIN
+        esp_csi_gain_ctrl_set_rx_force_gain(agc_gain_baseline, fft_gain_baseline);
+        ESP_LOGI(TAG, "fft_force %d, agc_force %d", fft_gain_baseline, agc_gain_baseline);
+#endif
     }
 #endif
 
     csi_send_queue_t *csi_send_queuedata = (csi_send_queue_t *)calloc(1, sizeof(csi_send_queue_t));
-    memcpy(&(csi_send_queuedata->id), info->payload+15, sizeof(uint32_t));
+    memcpy(&(csi_send_queuedata->id), info->payload + 15, sizeof(uint32_t));
 
     csi_send_queuedata->time = info->rx_ctrl.timestamp;
     csi_send_queuedata->agc_gain = agc_gain;
@@ -141,7 +146,6 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
     memcpy(csi_send_queuedata->buf + 8, info->buf, info->len);
     xQueueSend(csi_send_queue, &csi_send_queuedata, 0);
 
-    
 #if CONFIG_PRINT_CSI_DATA
     if (!s_count) {
         ESP_LOGI(TAG, "================ CSI RECV ================");
@@ -149,9 +153,9 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
     }
 
     ets_printf("CSI_DATA,%d," MACSTR ",%d,%d,%d,%d,%d,%d,%d,%d,%d",
-            csi_send_queuedata->id, MAC2STR(info->mac), rx_ctrl->rssi, rx_ctrl->rate,
-            rx_ctrl->noise_floor, fft_gain, agc_gain,rx_ctrl->channel,
-            rx_ctrl->timestamp, rx_ctrl->sig_len, rx_ctrl->rx_state);
+               csi_send_queuedata->id, MAC2STR(info->mac), rx_ctrl->rssi, rx_ctrl->rate,
+               rx_ctrl->noise_floor, fft_gain, agc_gain, rx_ctrl->channel,
+               rx_ctrl->timestamp, rx_ctrl->sig_len, rx_ctrl->rx_state);
 
     ets_printf(",%d,%d,\"[%d", info->len, info->first_word_invalid, info->buf[0]);
 
@@ -170,68 +174,67 @@ static void wifi_csi_init()
     ESP_ERROR_CHECK(esp_wifi_set_promiscuous(true));
     csi_send_queue = xQueueCreate(20, sizeof(csi_send_queue_t *));
     wifi_csi_config_t csi_config = {
-        .enable                   = true,                           
-        .acquire_csi_legacy       = false,               
-        .acquire_csi_force_lltf   = false,           
-        .acquire_csi_ht20         = true,                  
-        .acquire_csi_ht40         = true,                  
-        .acquire_csi_vht          = true,                  
-        .acquire_csi_su           = false,                   
-        .acquire_csi_mu           = false,                   
-        .acquire_csi_dcm          = false,                  
-        .acquire_csi_beamformed   = false,           
-        .acquire_csi_he_stbc_mode = 2,                                                                                                                                                                                                                                                                               
-        .val_scale_cfg            = false,                    
-        .dump_ack_en              = false,                      
-        .reserved                 = false                         
+        .enable                   = true,
+        .acquire_csi_legacy       = false,
+        .acquire_csi_force_lltf   = false,
+        .acquire_csi_ht20         = true,
+        .acquire_csi_ht40         = true,
+        .acquire_csi_vht          = true,
+        .acquire_csi_su           = false,
+        .acquire_csi_mu           = false,
+        .acquire_csi_dcm          = false,
+        .acquire_csi_beamformed   = false,
+        .acquire_csi_he_stbc_mode = 2,
+        .val_scale_cfg            = false,
+        .dump_ack_en              = false,
+        .reserved                 = false
     };
 
     ESP_ERROR_CHECK(esp_wifi_set_csi_config(&csi_config));
     ESP_ERROR_CHECK(esp_wifi_set_csi_rx_cb(wifi_csi_rx_cb, NULL));
     ESP_ERROR_CHECK(esp_wifi_set_csi(true));
-    
 
 }
 
 static void uart_send_task(void *pvParameter)
-{   
+{
     static int s_count = 0;
     csi_send_queue_t *csi_send_queue_data = NULL;
     Complex_Iq x_iq[64];
-    float cir[2]={};
-    float pha[2]={};
+    float cir[2] = {};
+    float pha[2] = {};
     while (xQueueReceive(csi_send_queue, &csi_send_queue_data, portMAX_DELAY) == pdTRUE) {
         UBaseType_t queueLength = uxQueueMessagesWaiting(csi_send_queue);
-        if (queueLength>10){
+        if (queueLength > 10) {
             ESP_LOGW(TAG, "csi queueLength:%d", queueLength);
-        } 
+        }
 #if !CONFIG_FORCE_GAIN && CONFIG_GAIN_CONTROL
-        float scaling_factor =0;
-        esp_radar_get_gain_compensation(&scaling_factor, csi_send_queue_data->agc_gain, csi_send_queue_data->fft_gain);
+        float scaling_factor = 0;
+        esp_csi_gain_ctrl_get_gain_compensation(&scaling_factor, csi_send_queue_data->agc_gain, csi_send_queue_data->fft_gain);
 #else
         float scaling_factor = 1.0f;
 #endif
 
         for (int i = 0; i < 64; i++) {
-            x_iq[i].real = _IQ16(csi_send_queue_data->buf[2 * i]); 
+            x_iq[i].real = _IQ16(csi_send_queue_data->buf[2 * i]);
             x_iq[i].imag = _IQ16(csi_send_queue_data->buf[2 * i + 1]);
         }
         fft_iq(x_iq, 1);
-        cir[0] = complex_magnitude_iq(x_iq[0])* scaling_factor;
+        cir[0] = complex_magnitude_iq(x_iq[0]) * scaling_factor;
         pha[0] = complex_phase_iq(x_iq[0]);
         for (int i = 64; i < 128; i++) {
-            x_iq[i-64].real = _IQ16(csi_send_queue_data->buf[2 * i]); 
-            x_iq[i-64].imag = _IQ16(csi_send_queue_data->buf[2 * i + 1]);
+            x_iq[i - 64].real = _IQ16(csi_send_queue_data->buf[2 * i]);
+            x_iq[i - 64].imag = _IQ16(csi_send_queue_data->buf[2 * i + 1]);
         }
         fft_iq(x_iq, 1);
-        cir[1] = complex_magnitude_iq(x_iq[0])* scaling_factor;
+        cir[1] = complex_magnitude_iq(x_iq[0]) * scaling_factor;
         pha[1] = complex_phase_iq(x_iq[0]);
 
         csi_data_t data = {
             .start = {0xAA, 0x55},
             .id = csi_send_queue_data->id,
-            .time_delta = csi_send_queue_data->time-time_zero,
-            .cir = {cir[0], cir[1],pha[0],pha[1]},
+            .time_delta = csi_send_queue_data->time - time_zero,
+            .cir = {cir[0], cir[1], pha[0], pha[1]},
             .end = {0x55, 0xAA},
         };
         uart_send_data((const char *)&data, sizeof(data));
@@ -243,20 +246,20 @@ void app_main()
 {
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-      ESP_ERROR_CHECK(nvs_flash_erase());
-      ret = nvs_flash_init();
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
     wifi_init();
 
     /**
-     * @breif Initialize ESP-NOW
+     * @brief Initialize ESP-NOW
      *        ESP-NOW protocol see: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/network/esp_now.html
      */
     esp_now_peer_info_t peer = {
         .channel   = CONFIG_LESS_INTERFERENCE_CHANNEL,
-        .ifidx     = WIFI_IF_STA,    
-        .encrypt   = false,   
+        .ifidx     = WIFI_IF_STA,
+        .encrypt   = false,
         .peer_addr = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
     };
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6
@@ -267,23 +270,22 @@ void app_main()
     bsp_led_init();
     wifi_csi_init();
     xTaskCreate(uart_send_task, "uart_send_task", 4096, NULL, 6, NULL);
-    uint32_t recv_cnt_prv=0;
-    while(1) {
+    uint32_t recv_cnt_prv = 0;
+    while (1) {
         static bool level = 1;
         static uint8_t time = 100;
-        if ((recv_cnt -  recv_cnt_prv) >= 20){
+        if ((recv_cnt -  recv_cnt_prv) >= 20) {
             recv_cnt_prv = recv_cnt;
             time = 100;
-            bsp_led_set(0, level*30,level*30, level*30);
+            bsp_led_set(0, level * 30, level * 30, level * 30);
             level = !level;
         }
-        if (time>0){
-            time-=1;
-        }else{
-            bsp_led_set(0,0,0,0);
+        if (time > 0) {
+            time -= 1;
+        } else {
+            bsp_led_set(0, 0, 0, 0);
         }
         vTaskDelay(10 / portTICK_PERIOD_MS);
     }
-
 
 }

@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 /* Wi-Fi CSI console Example
 
    This example code is in the Public Domain (or CC0 licensed, at your option.)
@@ -27,10 +32,23 @@
 #include "hal/uart_ll.h"
 #include "mbedtls/base64.h"
 
-#include "ws2812_led.h"
+#include "led_strip.h"
 #include "esp_radar.h"
 #include "csi_commands.h"
 
+extern esp_ping_handle_t g_ping_handle;
+static led_strip_handle_t led_strip;
+#if CONFIG_IDF_TARGET_ESP32C5
+#define WS2812_GPIO 27
+#elif CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
+#define WS2812_GPIO 8
+#elif CONFIG_IDF_TARGET_ESP32S3
+#define WS2812_GPIO 38
+#elif CONFIG_IDF_TARGET_ESP32S2
+#define WS2812_GPIO 18
+#elif CONFIG_IDF_TARGET_ESP32C3
+#define WS2812_GPIO 8
+#endif
 #define RECV_ESPNOW_CSI
 #define CONFIG_LESS_INTERFERENCE_CHANNEL    11
 #define CONFIG_SEND_DATA_FREQUENCY          100
@@ -42,36 +60,6 @@ static QueueHandle_t g_csi_info_queue    = NULL;
 static bool g_wifi_connect_status        = false;
 static uint32_t g_send_data_interval     = 1000 / CONFIG_SEND_DATA_FREQUENCY;
 static const char *TAG                   = "app_main";
-
-static void wifi_init(void)
-{
-    esp_err_t ret = nvs_flash_init();
-
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-
-    ESP_ERROR_CHECK(ret);
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_start());
-    esp_netif_create_default_wifi_sta();
-    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
-    ESP_ERROR_CHECK(esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G));
-    ESP_ERROR_CHECK(esp_wifi_set_channel(CONFIG_LESS_INTERFERENCE_CHANNEL, WIFI_SECOND_CHAN_BELOW));
-
-#ifdef RECV_ESPNOW_CSI 
-    ESP_ERROR_CHECK(esp_wifi_set_promiscuous(true));
-#endif
-}
 
 static struct {
     struct arg_lit *train_start;
@@ -116,11 +104,23 @@ static struct console_input_config {
     .predict_outliers_number   = 2,
     .train_start               = false,
     .collect_taget             = "unknown",
-    .csi_output_type           = "LLFT",
+    .csi_output_type           = "LLTF",
     .csi_output_format         = "decimal"
 };
 
 static TimerHandle_t g_collect_timer_handele = NULL;
+
+void wifi_csi_raw_cb(void *ctx, const wifi_csi_filtered_info_t *info)
+{
+    wifi_csi_filtered_info_t *q_data = malloc(sizeof(wifi_csi_filtered_info_t) + info->valid_len);
+    *q_data = *info;
+    memcpy(q_data->valid_data, info->valid_data, info->valid_len);
+
+    if (!g_csi_info_queue || xQueueSend(g_csi_info_queue, &q_data, 0) == pdFALSE) {
+        ESP_LOGW(TAG, "g_csi_info_queue full");
+        free(q_data);
+    }
+}
 
 static void collect_timercb(TimerHandle_t timer)
 {
@@ -156,9 +156,9 @@ static int wifi_cmd_radar(int argc, char **argv)
                              &g_console_input_config.predict_move_threshold);
         g_console_input_config.train_start = false;
 
-        printf("RADAR_DADA,0,0,0,%.6f,0,0,%.6f,0\n", 
-                g_console_input_config.predict_someone_threshold,
-                g_console_input_config.predict_move_threshold);
+        printf("RADAR_DADA,0,0,0,%.6f,0,0,%.6f,0\n",
+               g_console_input_config.predict_someone_threshold,
+               g_console_input_config.predict_move_threshold);
     }
 
     if (radar_args.predict_move_threshold->count) {
@@ -206,18 +206,57 @@ static int wifi_cmd_radar(int argc, char **argv)
     }
 
     if (radar_args.csi_output_type->count) {
-        wifi_radar_config_t radar_config = {0};
+        esp_radar_config_t radar_config = {0};
         esp_radar_get_config(&radar_config);
 
         if (!strcasecmp(radar_args.csi_output_type->sval[0], "NULL")) {
-            radar_config.wifi_csi_filtered_cb = NULL;
+            radar_config.csi_config.csi_filtered_cb = NULL;
         } else {
-            void wifi_csi_raw_cb(const wifi_csi_filtered_info_t *info, void *ctx);
-            radar_config.wifi_csi_filtered_cb = wifi_csi_raw_cb;
+            radar_config.csi_config.csi_filtered_cb = wifi_csi_raw_cb;
             strcpy(g_console_input_config.csi_output_type, radar_args.csi_output_type->sval[0]);
+#if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61
+            if (!strcasecmp(radar_args.csi_output_type->sval[0], "LLTF")) {
+                radar_config.csi_config.acquire_csi_lltf = true;
+                radar_config.dec_config.ltf_type = RADAR_LTF_TYPE_LLTF;
+                radar_config.dec_config.sub_carrier_step_size = 2;
+            } else if (!strcasecmp(radar_args.csi_output_type->sval[0], "HT-LTF")) {
+                radar_config.csi_config.acquire_csi_lltf = false;
+                radar_config.csi_config.acquire_csi_ht20 = true;
+                radar_config.csi_config.acquire_csi_ht40 = true;
+                radar_config.csi_config.acquire_csi_vht = true;
+                radar_config.dec_config.ltf_type = RADAR_LTF_TYPE_HTLTF;
+                radar_config.dec_config.sub_carrier_step_size = 5;
+            } else if (!strcasecmp(radar_args.csi_output_type->sval[0], "STBC-HT-LTF")) {
+                radar_config.csi_config.acquire_csi_lltf = false;
+                radar_config.csi_config.acquire_csi_ht20 = true;
+                radar_config.csi_config.acquire_csi_ht40 = true;
+                radar_config.csi_config.acquire_csi_vht = true;
+                radar_config.dec_config.ltf_type = RADAR_LTF_TYPE_STBC_HTLTF;
+                radar_config.dec_config.sub_carrier_step_size = 5;
+            } else if (!strcasecmp(radar_args.csi_output_type->sval[0], "HE-LTF")) {
+                radar_config.csi_config.acquire_csi_lltf = false;
+                radar_config.csi_config.acquire_csi_su = true;
+                radar_config.csi_config.acquire_csi_mu = true;
+                radar_config.csi_config.acquire_csi_dcm = true;
+                radar_config.csi_config.acquire_csi_beamformed = true;
+                radar_config.csi_config.acquire_csi_vht = true;
+                radar_config.dec_config.ltf_type = RADAR_LTF_TYPE_HELTF;
+                radar_config.dec_config.sub_carrier_step_size = 5;
+            } else if (!strcasecmp(radar_args.csi_output_type->sval[0], "STBC-HE-LTF")) {
+                radar_config.csi_config.acquire_csi_lltf = false;
+                radar_config.csi_config.acquire_csi_su = true;
+                radar_config.csi_config.acquire_csi_mu = true;
+                radar_config.csi_config.acquire_csi_dcm = true;
+                radar_config.csi_config.acquire_csi_beamformed = true;
+                radar_config.csi_config.acquire_csi_he_stbc_mode = CSI_HE_STBC_MODE_AVERAGE;
+                radar_config.csi_config.acquire_csi_vht = true;
+                radar_config.dec_config.ltf_type = RADAR_LTF_TYPE_STBC_HELTF;
+                radar_config.dec_config.sub_carrier_step_size = 5;
+            }
+#endif
         }
 
-        esp_radar_set_config(&radar_config);
+        esp_radar_change_config(&radar_config);
     }
 
     if (radar_args.csi_start->count) {
@@ -228,24 +267,25 @@ static int wifi_cmd_radar(int argc, char **argv)
         esp_radar_stop();
     }
 
+#if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32
     if (radar_args.csi_scale_shift->count) {
-        wifi_radar_config_t radar_config = {0};
+        esp_radar_config_t radar_config = {0};
         esp_radar_get_config(&radar_config);
         radar_config.csi_config.shift = radar_args.csi_scale_shift->ival[0];
-        esp_radar_set_config(&radar_config);
+        esp_radar_change_config(&radar_config);
 
         ESP_LOGI(TAG, "manually left shift %d bits of the scale of the CSI data", radar_config.csi_config.shift);
     }
 
     if (radar_args.channel_filter->count) {
-        wifi_radar_config_t radar_config = {0};
+        esp_radar_config_t radar_config = {0};
         esp_radar_get_config(&radar_config);
         radar_config.csi_config.channel_filter_en = radar_args.channel_filter->ival[0];
-        esp_radar_set_config(&radar_config);
+        esp_radar_change_config(&radar_config);
 
         ESP_LOGI(TAG, "enable(%d) to turn on channel filter to smooth adjacent sub-carrier", radar_config.csi_config.channel_filter_en);
     }
-
+#endif
     if (radar_args.send_data_interval->count) {
         g_send_data_interval = radar_args.send_data_interval->ival[0];
     }
@@ -272,11 +312,11 @@ void cmd_register_radar(void)
 
     radar_args.csi_start         = arg_lit0(NULL, "csi_start", "Start collecting CSI data from Wi-Fi");
     radar_args.csi_stop          = arg_lit0(NULL, "csi_stop", "Stop CSI data collection from Wi-Fi");
-    radar_args.csi_output_type   = arg_str0(NULL, "csi_output_type", "<NULL, LLFT, HT-LFT, STBC-HT-LTF>", "Type of CSI data");
+    radar_args.csi_output_type   = arg_str0(NULL, "csi_output_type", "<NULL, LLTF, HT-LTF, HE-LTF, STBC-HT-LTF, STBC-HE-LTF>", "Type of CSI data");
     radar_args.csi_output_format = arg_str0(NULL, "csi_output_format", "<decimal, base64>", "Format of CSI data");
     radar_args.csi_scale_shift   = arg_int0(NULL, "scale_shift", "<0~15>", "manually left shift bits of the scale of the CSI data");
     radar_args.channel_filter    = arg_int0(NULL, "channel_filter", "<0 or 1>", "enable to turn on channel filter to smooth adjacent sub-carrier");
-    
+
     radar_args.send_data_interval = arg_int0(NULL, "send_data_interval", "<interval_ms>", "The interval between sending null data or ping packets to the router");
 
     radar_args.end                = arg_end(8);
@@ -300,28 +340,39 @@ static void csi_data_print_task(void *arg)
 
     while (xQueueReceive(g_csi_info_queue, &info, portMAX_DELAY)) {
         size_t len = 0;
-        wifi_pkt_rx_ctrl_t *rx_ctrl = &info->rx_ctrl;
+        esp_radar_rx_ctrl_info_t *rx_ctrl = &info->rx_ctrl_info;
 
         if (!count) {
             ESP_LOGI(TAG, "================ CSI RECV ================");
-            len += sprintf(buffer + len, "type,sequence,timestamp,taget_seq,taget,mac,rssi,rate,sig_mode,mcs,bandwidth,smoothing,not_sounding,aggregation,stbc,fec_coding,sgi,noise_floor,ampdu_cnt,channel,secondary_channel,local_timestamp,ant,sig_len,rx_state,agc_gain,fft_gain,len,first_word,data\n");
+            len += sprintf(buffer + len, "type,sequence,timestamp,taget_seq,target,mac,rssi,rate,sig_mode,mcs,bandwidth,smoothing,not_sounding,aggregation,stbc,fec_coding,sgi,noise_floor,ampdu_cnt,channel,secondary_channel,local_timestamp,ant,sig_len,rx_state,agc_gain,fft_gain,len,first_word,data\n");
         }
-
-        if (!strcasecmp(g_console_input_config.csi_output_type, "LLFT")) {
-            info->valid_len = info->valid_llft_len;
-        } else if (!strcasecmp(g_console_input_config.csi_output_type, "HT-LFT")) {
-            info->valid_len = info->valid_llft_len + info->valid_ht_lft_len;
+        uint16_t valid_len = info->valid_len;
+        ESP_LOGI(TAG, "info->valid_len1: %d", info->valid_len);
+        if (!strcasecmp(g_console_input_config.csi_output_type, "LLTF")) {
+            info->valid_len = info->valid_lltf_len;
+        } else if (!strcasecmp(g_console_input_config.csi_output_type, "HT-LTF")) {
+            info->valid_len = info->valid_lltf_len + info->valid_ht_ltf_len;
         } else if (!strcasecmp(g_console_input_config.csi_output_type, "STBC-HT-LTF")) {
-            info->valid_len = info->valid_llft_len + info->valid_ht_lft_len + info->valid_stbc_ht_lft_len;
+            info->valid_len = info->valid_lltf_len + info->valid_ht_ltf_len + info->valid_stbc_ht_ltf_len;
+#if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
+        } else if (!strcasecmp(g_console_input_config.csi_output_type, "HE-LTF")) {
+            info->valid_len = info->valid_he_ltf_len;
+        } else if (!strcasecmp(g_console_input_config.csi_output_type, "STBC-HE-LTF")) {
+            info->valid_len = info->valid_he_ltf_len + info->valid_stbc_he_ltf_len;
+#endif
         }
+        ESP_LOGI(TAG, "info->valid_len: %d", info->valid_len);
+        if (info->valid_len == 0) {
+            info->valid_len = valid_len;
 
+        }
         len += sprintf(buffer + len, "CSI_DATA,%d,%u,%u,%s," MACSTR ",%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%u,%d,%d,%d,%d,%d,%d,%d,",
                        count++, esp_log_timestamp(), g_console_input_config.collect_number, g_console_input_config.collect_taget,
-                       MAC2STR(info->mac), rx_ctrl->rssi, rx_ctrl->rate, rx_ctrl->sig_mode,
-                       rx_ctrl->mcs, rx_ctrl->cwb, rx_ctrl->smoothing, rx_ctrl->not_sounding,
-                       rx_ctrl->aggregation, rx_ctrl->stbc, rx_ctrl->fec_coding, rx_ctrl->sgi,
-                       rx_ctrl->noise_floor, rx_ctrl->ampdu_cnt, rx_ctrl->channel, rx_ctrl->secondary_channel,
-                       rx_ctrl->timestamp, rx_ctrl->ant, rx_ctrl->sig_len, rx_ctrl->rx_state, info->agc_gain, info->fft_gain, info->valid_len, 0);
+                       MAC2STR(info->mac), rx_ctrl->rssi, rx_ctrl->rate, rx_ctrl->signal_mode,
+                       rx_ctrl->mcs, rx_ctrl->cwb, 0, 0,
+                       0, rx_ctrl->stbc, 0, 0,
+                       rx_ctrl->noise_floor, 0, rx_ctrl->channel, rx_ctrl->secondary_channel,
+                       rx_ctrl->timestamp, 0, 0, 0, rx_ctrl->agc_gain, rx_ctrl->fft_gain, info->valid_len, 0);
 
         if (!strcasecmp(g_console_input_config.csi_output_format, "base64")) {
             size_t size = 0;
@@ -346,19 +397,7 @@ static void csi_data_print_task(void *arg)
     vTaskDelete(NULL);
 }
 
-void wifi_csi_raw_cb(const wifi_csi_filtered_info_t *info, void *ctx)
-{
-    wifi_csi_filtered_info_t *q_data = malloc(sizeof(wifi_csi_filtered_info_t) + info->valid_len);
-    *q_data = *info;
-    memcpy(q_data->valid_data, info->valid_data, info->valid_len);
-
-    if (!g_csi_info_queue || xQueueSend(g_csi_info_queue, &q_data, 0) == pdFALSE) {
-        ESP_LOGW(TAG, "g_csi_info_queue full");
-        free(q_data);
-    }
-}
-
-static void wifi_radar_cb(const wifi_radar_info_t *info, void *ctx)
+static void wifi_radar_cb(void *ctx, const wifi_radar_info_t *info)
 {
     static float *s_buff_wander  = NULL;
     static float *s_buff_jitter  = NULL;
@@ -386,8 +425,8 @@ static void wifi_radar_cb(const wifi_radar_info_t *info, void *ctx)
         return;
     }
 
-    extern float trimmean(const float *array, size_t len, float percent);
-    extern float median(const float *a, size_t len);
+    extern float trimmean(const float * array, size_t len, float percent);
+    extern float median(const float * a, size_t len);
 
     float wander_average = trimmean(s_buff_wander, RADAR_BUFF_MAX_LEN, 0.5);
     float jitter_midean = median(s_buff_jitter, RADAR_BUFF_MAX_LEN);
@@ -400,7 +439,7 @@ static void wifi_radar_cb(const wifi_radar_info_t *info, void *ctx)
         }
 
         if (s_buff_jitter[index] * g_console_input_config.predict_move_sensitivity > g_console_input_config.predict_move_threshold
-            || (s_buff_jitter[index] * g_console_input_config.predict_move_sensitivity > jitter_midean && s_buff_jitter[index] > 0.0002)) {
+                || (s_buff_jitter[index] * g_console_input_config.predict_move_sensitivity > jitter_midean && s_buff_jitter[index] > 0.0002)) {
             move_count++;
         }
     }
@@ -437,13 +476,12 @@ static void wifi_radar_cb(const wifi_radar_info_t *info, void *ctx)
         static bool led_status = false;
 
         if (led_status) {
-            ws2812_led_set_rgb(0, 0, 0);
+            led_strip_set_pixel(led_strip, 0, 0, 0, 0);
         } else {
-            ws2812_led_set_rgb(255, 255, 0);
+            led_strip_set_pixel(led_strip, 0, 255, 255, 0);
         }
-
         led_status = !led_status;
-
+        led_strip_refresh(led_strip);
         return;
     }
 
@@ -454,11 +492,11 @@ static void wifi_radar_cb(const wifi_radar_info_t *info, void *ctx)
 
     if (room_status) {
         if (human_status) {
-            ws2812_led_set_rgb(0, 255, 0);
+            led_strip_set_pixel(led_strip, 0, 0, 255, 0);
             ESP_LOGI(TAG, "Someone moved");
             s_last_move_time = esp_log_timestamp();
         } else if (esp_log_timestamp() - s_last_move_time > 3 * 1000) {
-            ws2812_led_set_rgb(255, 255, 255);
+            led_strip_set_pixel(led_strip, 0, 255, 255, 255);
             ESP_LOGI(TAG, "Someone");
         }
 
@@ -466,16 +504,17 @@ static void wifi_radar_cb(const wifi_radar_info_t *info, void *ctx)
     } else if (esp_log_timestamp() - s_last_someone_time > 3 * 1000) {
         if (human_status) {
             s_last_move_time = esp_log_timestamp();
-            ws2812_led_set_rgb(255, 0, 0);
+            led_strip_set_pixel(led_strip, 0, 255, 0, 0);
         } else if (esp_log_timestamp() - s_last_move_time > 3 * 1000) {
-            ws2812_led_set_rgb(0, 0, 0);
+            led_strip_set_pixel(led_strip, 0, 0, 0, 0);
         }
     }
+    led_strip_refresh(led_strip);
 }
 
 static void trigger_router_send_data_task(void *arg)
 {
-    wifi_radar_config_t radar_config = {0};
+    esp_radar_config_t radar_config = {0};
     wifi_ap_record_t ap_info         = {0};
     uint8_t sta_mac[6]               = {0};
 
@@ -483,23 +522,23 @@ static void trigger_router_send_data_task(void *arg)
     esp_wifi_sta_get_ap_info(&ap_info);
     ESP_ERROR_CHECK(esp_wifi_get_mac(WIFI_IF_STA, sta_mac));
 
-    radar_config.csi_recv_interval = g_send_data_interval;
-    memcpy(radar_config.filter_dmac, sta_mac, sizeof(radar_config.filter_dmac));
+    radar_config.csi_config.csi_recv_interval = g_send_data_interval;
+    memcpy(radar_config.csi_config.filter_dmac, sta_mac, sizeof(radar_config.csi_config.filter_dmac));
 
 #if WIFI_CSI_SEND_NULL_DATA_ENABLE
     ESP_LOGI(TAG, "Send null data to router");
 
-    memset(radar_config.filter_mac, 0, sizeof(radar_config.filter_mac));
-    esp_radar_set_config(&radar_config);
+    memset(radar_config.csi_config.filter_mac, 0, sizeof(radar_config.csi_config.filter_mac));
+    esp_radar_change_config(&radar_config);
 
-typedef struct {
-    uint8_t frame_control[2];
-    uint16_t duration;
-    uint8_t destination_address[6];
-    uint8_t source_address[6];
-    uint8_t broadcast_address[6];
-    uint16_t sequence_control;
-} __attribute__((packed)) wifi_null_data_t;
+    typedef struct {
+        uint8_t frame_control[2];
+        uint16_t duration;
+        uint8_t destination_address[6];
+        uint8_t source_address[6];
+        uint8_t broadcast_address[6];
+        uint16_t sequence_control;
+    } __attribute__((packed)) wifi_null_data_t;
 
     wifi_null_data_t null_data = {
         .frame_control       = {0x48, 0x01},
@@ -529,10 +568,18 @@ typedef struct {
 #else
     ESP_LOGI(TAG, "Send ping data to router");
 
-    memcpy(radar_config.filter_mac, ap_info.bssid, sizeof(radar_config.filter_mac));
-    esp_radar_set_config(&radar_config);
+    memcpy(radar_config.csi_config.filter_mac, ap_info.bssid, sizeof(radar_config.csi_config.filter_mac));
+    esp_radar_change_config(&radar_config);
 
-    static esp_ping_handle_t ping_handle = NULL;
+    /* stop and delete existing ping session if any */
+    if (g_ping_handle != NULL) {
+        ESP_LOGI(TAG, "Stopping existing ping session before starting new one");
+        esp_ping_stop(g_ping_handle);
+        esp_ping_delete_session(g_ping_handle);
+        g_ping_handle = NULL;
+        ESP_LOGI(TAG, "Existing ping session stopped and deleted");
+    }
+
     esp_ping_config_t config = ESP_PING_DEFAULT_CONFIG();
     config.count       = 0;
     config.data_size   = 1;
@@ -548,8 +595,8 @@ typedef struct {
     config.target_addr.type = ESP_IPADDR_TYPE_V4;
 
     esp_ping_callbacks_t cbs = { 0 };
-    esp_ping_new_session(&config, &cbs, &ping_handle);
-    esp_ping_start(ping_handle);
+    esp_ping_new_session(&config, &cbs, &g_ping_handle);
+    esp_ping_start(g_ping_handle);
 #endif
 
     vTaskDelete(NULL);
@@ -570,17 +617,51 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         g_wifi_connect_status = false;
         ESP_LOGW(TAG, "Wi-Fi disconnected");
+        esp_radar_config_t radar_config;
+        esp_radar_get_config(&radar_config);
+        esp_radar_wifi_reinit(&radar_config.wifi_config);
+
     }
 }
+esp_err_t ws2812_led_init(void)
+{
+    led_strip_config_t strip_config = {
+        .strip_gpio_num = WS2812_GPIO,
+        .max_leds = 1,
+    };
 
+    led_strip_rmt_config_t rmt_config = {
+        .clk_src = RMT_CLK_SRC_DEFAULT,    // different clock source can lead to different power consumption
+        .resolution_hz = 10 * 1000 * 1000, // RMT counter clock frequency: 10MHz
+        .flags = {
+            .with_dma = false, // DMA feature is available on chips like ESP32-S3/P4
+        }
+    };
+    ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
+    /* Set all LED off to clear all pixels */
+    led_strip_clear(led_strip);
+    return ESP_OK;
+}
 void app_main(void)
 {
+    ESP_LOGI(TAG, "app_main start, line: %d", __LINE__);
+    /**
+     * @brief Initialize NVS
+     */
+
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+    ESP_LOGI(TAG, "app_main line: %d", __LINE__);
     /**
      * @brief Install ws2812 driver, Used to display the status of the device
      */
     ws2812_led_init();
-    ws2812_led_clear();
 
+    ESP_LOGI(TAG, "app_main start, line: %d", __LINE__);
     /**
      * @brief Turn on the radar module printing information
      */
@@ -604,7 +685,24 @@ void app_main(void)
     uart_ll_set_baudrate(UART_LL_GET_HW(CONFIG_ESP_CONSOLE_UART_NUM), CONFIG_ESP_CONSOLE_UART_BAUDRATE);
 #endif
 #endif
-    wifi_init();
+
+    /**
+     * @brief Set the Wi-Fi radar configuration
+     */
+    esp_radar_csi_config_t csi_config = ESP_RADAR_CSI_CONFIG_DEFAULT();
+    esp_radar_wifi_config_t wifi_config = ESP_RADAR_WIFI_CONFIG_DEFAULT();
+    esp_radar_espnow_config_t espnow_config = ESP_RADAR_ESPNOW_CONFIG_DEFAULT();
+    esp_radar_dec_config_t dec_config = ESP_RADAR_DEC_CONFIG_DEFAULT();
+    memcpy(csi_config.filter_mac, "\x1a\x00\x00\x00\x00\x00", 6);
+    csi_config.csi_recv_interval = g_send_data_interval;
+    dec_config.wifi_radar_cb     = wifi_radar_cb;
+#if WIFI_CSI_SEND_NULL_DATA_ENABLE
+    csi_config.dump_ack_en       = true;
+#endif
+    dec_config.outliers_threshold = 0;
+    ESP_ERROR_CHECK(esp_radar_wifi_init(&wifi_config));
+    ESP_ERROR_CHECK(esp_radar_csi_init(&csi_config));
+    ESP_ERROR_CHECK(esp_radar_dec_init(&dec_config));
 
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &wifi_event_handler, NULL));
@@ -615,24 +713,6 @@ void app_main(void)
     cmd_register_wifi_scan();
     cmd_register_radar();
     ESP_ERROR_CHECK(esp_console_start_repl(repl));
-
-    /**
-     * @brief Initialize Wi-Fi Radar
-     */
-    esp_radar_init();
-
-    /**
-     * @brief Set the Wi-Fi radar configuration
-     */
-    wifi_radar_config_t radar_config = WIFI_RADAR_CONFIG_DEFAULT();
-    radar_config.wifi_radar_cb     = wifi_radar_cb;
-    radar_config.csi_recv_interval = g_send_data_interval;
-
-#if WIFI_CSI_SEND_NULL_DATA_ENABLE
-    radar_config.csi_config.dump_ack_en       = true;
-#endif
-    memcpy(radar_config.filter_mac, "\x1a\x00\x00\x00\x00\x00", 6);
-    esp_radar_set_config(&radar_config);
 
     /**
      * @brief Start Wi-Fi radar

@@ -324,6 +324,8 @@ def csi_data_read_parse(port: str, csv_writer, log_file_fd,callback=None):
                 colors = generate_subcarrier_colors((0,28), (29,56), (60,116), len(csi_raw_data))
             elif  csi_data_len == 228 :
                 colors = generate_subcarrier_colors((0,28), (29,56), (57,114), len(csi_raw_data))
+            elif  csi_data_len == 328 :
+                colors = generate_subcarrier_colors((0,164), None, None, len(csi_raw_data))
             elif  csi_data_len == 490 :
                 colors = generate_subcarrier_colors((0,61), (62,122), (123,245), len(csi_raw_data))
             elif  csi_data_len == 128 :

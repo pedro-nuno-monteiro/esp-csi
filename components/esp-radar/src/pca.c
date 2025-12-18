@@ -13,7 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "esp_radar_t.h"
+#include "esp_radar.h"
 
 #define ITRS_MAX 30
 #define PRECISION 0.0001

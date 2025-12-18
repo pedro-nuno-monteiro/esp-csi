@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include <string.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -23,11 +28,23 @@
 
 #include <app_wifi.h>
 #include <app_reset.h>
-#include <ws2812_led.h>
+#include "led_strip.h"
 #include <iot_button.h>
 
 #include "esp_radar.h"
 #include "esp_ping.h"
+
+#if CONFIG_IDF_TARGET_ESP32C5
+#define WS2812_GPIO 27
+#elif CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
+#define WS2812_GPIO 8
+#elif CONFIG_IDF_TARGET_ESP32S3
+#define WS2812_GPIO 38
+#elif CONFIG_IDF_TARGET_ESP32S2
+#define WS2812_GPIO 18
+#elif CONFIG_IDF_TARGET_ESP32C3
+#define WS2812_GPIO 8
+#endif
 
 #ifdef CONFIG_IDF_TARGET_ESP32C3
 #define BUTTON_GPIO                                GPIO_NUM_8
@@ -50,7 +67,7 @@
 #define RADAR_PARAM_FILTER_COUNT                   "filter_count"
 #define RADAR_PARAM_THRESHOLD_CALIBRATE            "threshold_calibrate"
 #define RADAR_PARAM_THRESHOLD_CALIBRATE_TIMEOUT    "threshold_calibrate_timeout"
-
+static led_strip_handle_t led_strip;
 typedef struct  {
     bool threshold_calibrate;               /**< Self-calibration acquisition, the most suitable threshold, calibration is to ensure that no one is in the room */
     uint8_t threshold_calibrate_timeout;    /**< Calibration timeout, the unit is second */
@@ -100,7 +117,7 @@ static esp_err_t ping_router_start(uint32_t interval_ms)
     return ESP_OK;
 }
 
-static void radar_cb(const wifi_radar_info_t *info, void *ctx)
+static void radar_cb(void *ctx, const wifi_radar_info_t *info)
 {
     bool someone_status = false;
     bool move_status    = false;
@@ -134,7 +151,7 @@ static void radar_cb(const wifi_radar_info_t *info, void *ctx)
         }
     }
 
-    someone_status = (info->waveform_jitter > g_someone_threshold)? true: false;
+    someone_status = (info->waveform_jitter > g_someone_threshold) ? true : false;
     static uint32_t s_count = 0;
 
     if (!s_count++) {
@@ -152,11 +169,11 @@ static void radar_cb(const wifi_radar_info_t *info, void *ctx)
         static bool led_status = false;
 
         if (led_status) {
-            ws2812_led_set_rgb(0, 0, 0);
+            led_strip_set_pixel(led_strip, 0, 0, 0);
         } else {
-            ws2812_led_set_rgb(255, 255, 0);
+            led_strip_set_pixel(led_strip, 0, 255, 255, 0);
         }
-
+        led_strip_refresh(led_strip);
         led_status = !led_status;
         return;
     }
@@ -165,7 +182,7 @@ static void radar_cb(const wifi_radar_info_t *info, void *ctx)
      * @brief Use LED and LOG to display the detection results
      *        1. Someone moves in the room, LED will flash green
      *        2. No one moves in the room, LED will flash white
-     *        3. No one in the room, LED will trun off
+     *        3. No one in the room, LED will turn off
      */
     static uint32_t s_last_move_time = 0;
     static bool s_last_move_status   = false;
@@ -178,7 +195,7 @@ static void radar_cb(const wifi_radar_info_t *info, void *ctx)
 
     if (move_status) {
         if (move_status != s_last_move_status) {
-            ws2812_led_set_rgb(0, 255, 0);
+            led_strip_set_pixel(led_strip, 0, 0, 255, 0);
             ESP_LOGI(TAG, "someone moves in the room");
         }
 
@@ -187,12 +204,12 @@ static void radar_cb(const wifi_radar_info_t *info, void *ctx)
         ESP_LOGI(TAG, "No one moves in the room");
     } else if (esp_log_timestamp() - s_last_move_time > 3 * 1000) {
         if (someone_status) {
-            ws2812_led_set_rgb(255, 255, 255);
+            led_strip_set_pixel(led_strip, 0, 255, 255, 255);
         } else {
-            ws2812_led_set_rgb(0, 0, 0);
+            led_strip_set_pixel(led_strip, 0, 0, 0, 0);
         }
     }
-
+    led_strip_refresh(led_strip);
     s_last_move_status = move_status;
 
     /**
@@ -206,7 +223,7 @@ static void radar_cb(const wifi_radar_info_t *info, void *ctx)
     static bool s_report_move_status        = false;
     static uint32_t s_report_move_count     = 0;
     static uint32_t s_report_move_timestamp = 0;
-    s_report_move_count = move_status ? s_report_move_count + 1: s_report_move_count;
+    s_report_move_count = move_status ? s_report_move_count + 1 : s_report_move_count;
 
     if (s_report_someone_status != someone_status && !someone_status) {
         esp_rmaker_param_t *someone_status_param = esp_rmaker_device_get_param_by_name(radar_device, RADAR_PARAM_SOMEONE_STATUS);
@@ -235,18 +252,22 @@ static void radar_cb(const wifi_radar_info_t *info, void *ctx)
 
 static esp_err_t radar_start()
 {
-    esp_radar_init();
+    esp_radar_config_t radar_config = ESP_RADAR_CONFIG_DEFAULT();
+#if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
+    // radar_config.csi_config.acquire_csi_lltf = true;
+    // radar_config.csi_config.htltf_en = true;
+#else
+    // radar_config.csi_config.lltf_en = true;
+    // radar_config.csi_config.htltf_en = true;
 
-    wifi_radar_config_t radar_config = WIFI_RADAR_CONFIG_DEFAULT();
-    radar_config.csi_config.lltf_en = true;
-    radar_config.csi_config.htltf_en = false;
-    radar_config.csi_config.stbc_htltf2_en = false;
-    radar_config.wifi_radar_cb = radar_cb;
+#endif
+    radar_config.dec_config.wifi_radar_cb = radar_cb;
 
     wifi_ap_record_t ap_info = {0x0};
     esp_wifi_sta_get_ap_info(&ap_info);
-    memcpy(radar_config.filter_mac, ap_info.bssid, sizeof(ap_info.bssid));
-    esp_radar_set_config(&radar_config);
+    memcpy(radar_config.csi_config.filter_mac, ap_info.bssid, sizeof(ap_info.bssid));
+    ESP_ERROR_CHECK(esp_radar_csi_init(&radar_config.csi_config));
+    ESP_ERROR_CHECK(esp_radar_dec_init(&radar_config.dec_config));
 
     esp_radar_start();
 
@@ -295,7 +316,7 @@ static esp_err_t write_cb(const esp_rmaker_device_t *device, const esp_rmaker_pa
 
         if (!g_auto_calibrate_timerhandle) {
             g_auto_calibrate_timerhandle = xTimerCreate("auto_calibrate", pdMS_TO_TICKS(AUTO_CALIBRATE_RAPORT_INTERVAL * 1000),
-                                           true, NULL, auto_calibrate_timercb);
+                                                        true, NULL, auto_calibrate_timercb);
         }
 
         if (g_detect_config.threshold_calibrate) {
@@ -319,12 +340,29 @@ static esp_err_t write_cb(const esp_rmaker_device_t *device, const esp_rmaker_pa
     nvs_commit(g_nvs_handle);
     return ESP_OK;
 }
+esp_err_t ws2812_led_init(void)
+{
+    led_strip_config_t strip_config = {
+        .strip_gpio_num = WS2812_GPIO,
+        .max_leds = 1,
+    };
 
+    led_strip_rmt_config_t rmt_config = {
+        .clk_src = RMT_CLK_SRC_DEFAULT,    // different clock source can lead to different power consumption
+        .resolution_hz = 10 * 1000 * 1000, // RMT counter clock frequency: 10MHz
+        .flags = {
+            .with_dma = false, // DMA feature is available on chips like ESP32-S3/P4
+        }
+    };
+    ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
+    /* Set all LED off to clear all pixels */
+    led_strip_clear(led_strip);
+    return ESP_OK;
+}
 void app_main()
 {
     /* Initialize Application specific hardware drivers and set initial state */
     ws2812_led_init();
-    ws2812_led_clear();
     button_handle_t btn_handle = iot_button_create(BUTTON_GPIO, BUTTON_ACTIVE_LOW);
     app_reset_button_register(btn_handle, BUTTON_WIFI_RESET_TIMEOUT, BUTTON_FACTORY_RESET_TIMEOUT);
 
@@ -334,7 +372,7 @@ void app_main()
         ESP_ERROR_CHECK(nvs_flash_erase());
         err = nvs_flash_init();
     }
-    ESP_ERROR_CHECK( err );
+    ESP_ERROR_CHECK(err);
     nvs_open("wifi_radar", NVS_READWRITE, &g_nvs_handle);
     size_t detect_config_size = sizeof(radar_detect_config_t);
     nvs_get_blob(g_nvs_handle, "detect_config", &g_detect_config, &detect_config_size);
@@ -372,12 +410,12 @@ void app_main()
     } radar_param_t;
     esp_rmaker_param_val_t invalid_val = {.type = RMAKER_VAL_TYPE_INVALID};
     radar_param_t radar_param_list[] = {
-        {RADAR_PARAM_THRESHOLD_CALIBRATE, PROP_FLAG_READ | PROP_FLAG_WRITE, ESP_RMAKER_UI_TOGGLE, esp_rmaker_bool(g_detect_config.threshold_calibrate),invalid_val,invalid_val,invalid_val},
+        {RADAR_PARAM_THRESHOLD_CALIBRATE, PROP_FLAG_READ | PROP_FLAG_WRITE, ESP_RMAKER_UI_TOGGLE, esp_rmaker_bool(g_detect_config.threshold_calibrate), invalid_val, invalid_val, invalid_val},
         {RADAR_PARAM_THRESHOLD_CALIBRATE_TIMEOUT, PROP_FLAG_READ | PROP_FLAG_WRITE, ESP_RMAKER_UI_TEXT, esp_rmaker_int(g_detect_config.threshold_calibrate_timeout), esp_rmaker_int(10), esp_rmaker_int(3600), esp_rmaker_int(10)},
         {RADAR_PARAM_MOVE_THRESHOLD, PROP_FLAG_READ | PROP_FLAG_WRITE, ESP_RMAKER_UI_TEXT, esp_rmaker_float(g_detect_config.move_threshold), esp_rmaker_float(0.01), esp_rmaker_float(0.1), esp_rmaker_float(0.01)},
-        {RADAR_PARAM_MOVE_STATUS, PROP_FLAG_READ, ESP_RMAKER_UI_TEXT, esp_rmaker_bool(false),invalid_val,invalid_val,invalid_val},
+        {RADAR_PARAM_MOVE_STATUS, PROP_FLAG_READ, ESP_RMAKER_UI_TEXT, esp_rmaker_bool(false), invalid_val, invalid_val, invalid_val},
         {RADAR_PARAM_MOVE_COUNT, PROP_FLAG_READ | PROP_FLAG_TIME_SERIES, ESP_RMAKER_UI_TEXT, esp_rmaker_int(0), esp_rmaker_int(0), esp_rmaker_int(100), esp_rmaker_int(1)},
-        {RADAR_PARAM_SOMEONE_STATUS, PROP_FLAG_READ, ESP_RMAKER_UI_TEXT, esp_rmaker_bool(false),invalid_val,invalid_val,invalid_val},
+        {RADAR_PARAM_SOMEONE_STATUS, PROP_FLAG_READ, ESP_RMAKER_UI_TEXT, esp_rmaker_bool(false), invalid_val, invalid_val, invalid_val},
         {RADAR_PARAM_SOMEONE_TIMEOUT, PROP_FLAG_READ | PROP_FLAG_WRITE, ESP_RMAKER_UI_TEXT, esp_rmaker_int(g_detect_config.someone_timeout), esp_rmaker_int(10), esp_rmaker_int(3600), esp_rmaker_int(10)},
         {RADAR_PARAM_FILTER_WINDOW, PROP_FLAG_READ | PROP_FLAG_WRITE, ESP_RMAKER_UI_TEXT, esp_rmaker_int(g_detect_config.filter_window), esp_rmaker_int(1), esp_rmaker_int(16), esp_rmaker_int(1)},
         {RADAR_PARAM_FILTER_COUNT, PROP_FLAG_READ | PROP_FLAG_WRITE, ESP_RMAKER_UI_TEXT, esp_rmaker_int(g_detect_config.filter_count), esp_rmaker_int(1), esp_rmaker_int(16), esp_rmaker_int(1)},
@@ -387,9 +425,9 @@ void app_main()
         char radar_param_type[64] = "esp.param.";
         strcat(radar_param_type, radar_param_list[i].param_name);
         esp_rmaker_param_t *param = esp_rmaker_param_create(radar_param_list[i].param_name, radar_param_type,
-                                    radar_param_list[i].val, radar_param_list[i].properties);
+                                                            radar_param_list[i].val, radar_param_list[i].properties);
 
-        if(radar_param_list[i].ui_type) {
+        if (radar_param_list[i].ui_type) {
             esp_rmaker_param_add_ui_type(param, radar_param_list[i].ui_type);
         }
 

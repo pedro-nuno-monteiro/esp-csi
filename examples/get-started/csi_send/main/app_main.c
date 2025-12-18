@@ -38,9 +38,9 @@
 #endif
 
 #define CONFIG_ESP_NOW_RATE             WIFI_PHY_RATE_MCS0_LGI
-#define CONFIG_SEND_FREQUENCY               10
+#define CONFIG_SEND_FREQUENCY               100
 
-static const uint8_t CONFIG_CSI_SEND_MAC[] = {0x2a, 0x00, 0x00, 0x00, 0x00, 0x00};
+static const uint8_t CONFIG_CSI_SEND_MAC[] = {0x1a, 0x00, 0x00, 0x00, 0x00, 0x00};
 static const char *TAG = "csi_send";
 
 static void wifi_init()
@@ -54,7 +54,7 @@ static void wifi_init()
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
 
-#if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6
+#if CONFIG_IDF_TARGET_ESP32C5
     ESP_ERROR_CHECK(esp_wifi_start());
     esp_wifi_set_band_mode(CONFIG_WIFI_BAND_MODE);
     wifi_protocols_t protocols = {
@@ -65,6 +65,17 @@ static void wifi_init()
     wifi_bandwidths_t bandwidth = {
         .ghz_2g = CONFIG_WIFI_2G_BANDWIDTHS,
         .ghz_5g = CONFIG_WIFI_5G_BANDWIDTHS
+    };
+    ESP_ERROR_CHECK(esp_wifi_set_bandwidths(ESP_IF_WIFI_STA, &bandwidth));
+#elif CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
+    ESP_ERROR_CHECK(esp_wifi_start());
+    esp_wifi_set_band_mode(CONFIG_WIFI_BAND_MODE);
+    wifi_protocols_t protocols = {
+        .ghz_2g = CONFIG_WIFI_2G_PROTOCOL,
+    };
+    ESP_ERROR_CHECK(esp_wifi_set_protocols(ESP_IF_WIFI_STA, &protocols));
+    wifi_bandwidths_t bandwidth = {
+        .ghz_2g = CONFIG_WIFI_2G_BANDWIDTHS,
     };
     ESP_ERROR_CHECK(esp_wifi_set_bandwidths(ESP_IF_WIFI_STA, &bandwidth));
 #else
