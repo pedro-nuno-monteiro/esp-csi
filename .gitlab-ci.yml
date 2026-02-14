@@ -23,12 +23,13 @@ before_script:
 
     get_targets() {
       local example=$1
-      for pair in $EXAMPLE_TARGETS; do
-        if [[ "$pair" == "${example}:"* ]]; then
-          echo "${pair#${example}:}"
+      while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        if [[ "$line" == "${example}:"* ]]; then
+          echo "${line#${example}: }"
           return
         fi
-      done
+      done <<< "$EXAMPLE_TARGETS"
       echo "esp32"
     }
 
@@ -75,7 +76,7 @@ before_script:
       esp-crab/master_recv
       esp-crab/slave_recv
       esp-crab/slave_send
-    EXAMPLE_TARGETS: >
+    EXAMPLE_TARGETS: |
       get-started/csi_send: esp32 esp32s3 esp32s2 esp32c3 esp32c6 esp32c5 esp32c61
       get-started/csi_recv: esp32 esp32s3 esp32s2 esp32c3 esp32c6 esp32c5 esp32c61
       get-started/csi_recv_router: esp32 esp32s3 esp32s2 esp32c3 esp32c6 esp32c5 esp32c61
