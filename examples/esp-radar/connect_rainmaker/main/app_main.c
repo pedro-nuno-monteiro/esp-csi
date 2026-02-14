@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2025-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -43,6 +43,8 @@
 #elif CONFIG_IDF_TARGET_ESP32S2
 #define WS2812_GPIO 18
 #elif CONFIG_IDF_TARGET_ESP32C3
+#define WS2812_GPIO 8
+#else
 #define WS2812_GPIO 8
 #endif
 
@@ -169,7 +171,7 @@ static void radar_cb(void *ctx, const wifi_radar_info_t *info)
         static bool led_status = false;
 
         if (led_status) {
-            led_strip_set_pixel(led_strip, 0, 0, 0);
+            led_strip_set_pixel(led_strip, 0, 0, 0, 0);
         } else {
             led_strip_set_pixel(led_strip, 0, 255, 255, 0);
         }
@@ -347,14 +349,25 @@ esp_err_t ws2812_led_init(void)
         .max_leds = 1,
     };
 
-    led_strip_rmt_config_t rmt_config = {
-        .clk_src = RMT_CLK_SRC_DEFAULT,    // different clock source can lead to different power consumption
-        .resolution_hz = 10 * 1000 * 1000, // RMT counter clock frequency: 10MHz
+#if CONFIG_IDF_TARGET_ESP32C61
+    led_strip_spi_config_t spi_config = {
+        .clk_src = SPI_CLK_SRC_DEFAULT,
+        .spi_bus = SPI2_HOST,
         .flags = {
-            .with_dma = false, // DMA feature is available on chips like ESP32-S3/P4
+            .with_dma = false,
+        }
+    };
+    ESP_ERROR_CHECK(led_strip_new_spi_device(&strip_config, &spi_config, &led_strip));
+#else
+    led_strip_rmt_config_t rmt_config = {
+        .clk_src = RMT_CLK_SRC_DEFAULT,
+        .resolution_hz = 10 * 1000 * 1000,
+        .flags = {
+            .with_dma = false,
         }
     };
     ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
+#endif
     /* Set all LED off to clear all pixels */
     led_strip_clear(led_strip);
     return ESP_OK;

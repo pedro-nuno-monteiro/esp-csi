@@ -82,6 +82,7 @@
 
 - [ESP-IDF Programming Guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/index.html) is the documentation for the Espressif IoT development framework.
 - [ESP-WIFI-CSI Guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/wifi.html#wi-fi-channel-state-information) is the use of ESP-WIFI-CSI Description.
+- 社区项目推荐：[ESPectre](https://github.com/francescopace/espectre)，一个基于 Wi-Fi CSI 频谱分析的运动检测系统，支持与 Home Assistant 集成，可作为从 CSI 研究到智能家居场景落地的参考实现。
 - 如果您发现 BUG 或有 feature 请求, 可以在 GitHub [Issues](https://github.com/espressif/esp-csi/issues)上提交。在提交之前，请检查您的问题是否已存在于现有问题中
 
 ## Reference

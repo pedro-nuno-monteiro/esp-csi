@@ -18,29 +18,65 @@ before_script:
   - echo -e "Host gitlab.espressif.cn\n\tStrictHostKeyChecking no\n" >> ~/.ssh/config
 
 .build_all_examples_script: &build_all_examples_script
-  - for EXAMPLE in $EXAMPLES; do
-  - cd $CI_PROJECT_DIR/examples/$EXAMPLE
-  - echo Building $EXAMPLE
-  - if [[ "$EXAMPLE" == "console_test" ]]; then
-  - for TARGET in $TARGETS; do
-  - cd $CI_PROJECT_DIR/examples/$EXAMPLE
-  - idf.py fullclean
-  - idf.py --preview set-target $TARGET
-  - idf.py build
-  - done
-  - else
-  - idf.py fullclean
-  - idf.py build
-  - fi
-  - echo Build Complete for $EXAMPLE
-  - done
+  - |
+    echo "Building examples: $EXAMPLES (IDF $IDF_VERSION, supported targets: ${SUPPORTED_TARGETS:-all})"
+
+    get_targets() {
+      local example=$1
+      while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        if [[ "$line" == "${example}:"* ]]; then
+          echo "${line#${example}: }"
+          return
+        fi
+      done <<< "$EXAMPLE_TARGETS"
+      echo "esp32"
+    }
+
+    filter_targets() {
+      local targets=$1
+      if [[ -z "$SUPPORTED_TARGETS" ]]; then
+        echo "$targets"
+        return
+      fi
+      for t in $targets; do
+        for s in $SUPPORTED_TARGETS; do
+          if [[ "$t" == "$s" ]]; then
+            echo "$t"
+            break
+          fi
+        done
+      done
+    }
+
+    for EXAMPLE in $EXAMPLES; do
+      ALL_TARGETS=$(get_targets "$EXAMPLE")
+      TARGETS=$(filter_targets "$ALL_TARGETS")
+      cd "$CI_PROJECT_DIR/examples/$EXAMPLE"
+      for TARGET in $TARGETS; do
+        echo "Building $EXAMPLE for target $TARGET (IDF $IDF_VERSION)"
+        idf.py fullclean
+        idf.py --preview set-target "$TARGET"
+        idf.py build
+        echo "Build Complete for $EXAMPLE ($TARGET)"
+      done
+    done
 
 .build_template:
   stage: build
   tags:
     - build
   variables:
-    EXAMPLES: "esp-radar/console_test get-started/csi_send get-started/csi_recv get-started/csi_recv_router"
+    EXAMPLES: >
+      esp-radar/connect_rainmaker
+      esp-crab/master_recv
+      esp-crab/slave_recv
+      esp-crab/slave_send
+    EXAMPLE_TARGETS: |
+      esp-radar/connect_rainmaker: esp32s3 esp32s2 esp32c3 esp32c6 esp32c5 esp32c61
+      esp-crab/master_recv: esp32c5
+      esp-crab/slave_recv: esp32c5
+      esp-crab/slave_send: esp32c5
   script:
     - *build_all_examples_script
 
@@ -48,13 +84,15 @@ build_idf_v5.4:
   extends: .build_template
   image: espressif/idf:release-v5.4
   variables:
-    TARGETS: "esp32 esp32s3 esp32s2 esp32c3 esp32c6"
+    IDF_VERSION: "5.4"
+    SUPPORTED_TARGETS: "esp32 esp32s3 esp32s2 esp32c3 esp32c6"
 
 build_idf_v5.5:
   extends: .build_template
   image: espressif/idf:release-v5.5
   variables:
-    TARGETS: "esp32 esp32s3 esp32s2 esp32c3 esp32c6 esp32c5 esp32c61"
+    IDF_VERSION: "5.5"
+    SUPPORTED_TARGETS: "esp32 esp32s3 esp32s2 esp32c3 esp32c6 esp32c5 esp32c61"
 
 push_master_to_github:
   stage: deploy
