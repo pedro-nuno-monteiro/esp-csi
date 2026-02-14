@@ -44,6 +44,8 @@
 #define WS2812_GPIO 18
 #elif CONFIG_IDF_TARGET_ESP32C3
 #define WS2812_GPIO 8
+#else
+#define WS2812_GPIO 8
 #endif
 
 #ifdef CONFIG_IDF_TARGET_ESP32C3
