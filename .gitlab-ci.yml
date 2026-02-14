@@ -18,8 +18,9 @@ before_script:
   - echo -e "Host gitlab.espressif.cn\n\tStrictHostKeyChecking no\n" >> ~/.ssh/config
 
 .build_all_examples_script: &build_all_examples_script
-  - 'echo "Building examples: $EXAMPLES (IDF $IDF_VERSION, supported targets: ${SUPPORTED_TARGETS:-all})"'
   - |
+    echo "Building examples: $EXAMPLES (IDF $IDF_VERSION, supported targets: ${SUPPORTED_TARGETS:-all})"
+
     get_targets() {
       local example=$1
       for pair in $EXAMPLE_TARGETS; do
@@ -30,34 +31,35 @@ before_script:
       done
       echo "esp32"
     }
+
     filter_targets() {
       local targets=$1
       if [[ -z "$SUPPORTED_TARGETS" ]]; then
-        echo $targets
+        echo "$targets"
         return
       fi
       for t in $targets; do
         for s in $SUPPORTED_TARGETS; do
           if [[ "$t" == "$s" ]]; then
-            echo $t
+            echo "$t"
             break
           fi
         done
       done
     }
-  - for EXAMPLE in $EXAMPLES; do
-  - |
-    ALL_TARGETS=$(get_targets $EXAMPLE)
-    TARGETS=$(filter_targets "$ALL_TARGETS")
-    cd $CI_PROJECT_DIR/examples/$EXAMPLE
-    for TARGET in $TARGETS; do
-      echo "Building $EXAMPLE for target $TARGET (IDF $IDF_VERSION)"
-      idf.py fullclean
-      idf.py --preview set-target $TARGET
-      idf.py build
-      echo "Build Complete for $EXAMPLE ($TARGET)"
+
+    for EXAMPLE in $EXAMPLES; do
+      ALL_TARGETS=$(get_targets "$EXAMPLE")
+      TARGETS=$(filter_targets "$ALL_TARGETS")
+      cd "$CI_PROJECT_DIR/examples/$EXAMPLE"
+      for TARGET in $TARGETS; do
+        echo "Building $EXAMPLE for target $TARGET (IDF $IDF_VERSION)"
+        idf.py fullclean
+        idf.py --preview set-target "$TARGET"
+        idf.py build
+        echo "Build Complete for $EXAMPLE ($TARGET)"
+      done
     done
-  - done
 
 .build_template:
   stage: build
