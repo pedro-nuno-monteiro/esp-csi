@@ -18,7 +18,7 @@ before_script:
   - echo -e "Host gitlab.espressif.cn\n\tStrictHostKeyChecking no\n" >> ~/.ssh/config
 
 .build_all_examples_script: &build_all_examples_script
-  - echo "Building examples: $EXAMPLES (IDF $IDF_VERSION, supported targets: ${SUPPORTED_TARGETS:-all})"
+  - 'echo "Building examples: $EXAMPLES (IDF $IDF_VERSION, supported targets: ${SUPPORTED_TARGETS:-all})"'
   - |
     get_targets() {
       local example=$1
