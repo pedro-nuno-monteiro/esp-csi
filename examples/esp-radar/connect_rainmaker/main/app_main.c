@@ -169,7 +169,7 @@ static void radar_cb(void *ctx, const wifi_radar_info_t *info)
         static bool led_status = false;
 
         if (led_status) {
-            led_strip_set_pixel(led_strip, 0, 0, 0);
+            led_strip_set_pixel(led_strip, 0, 0, 0, 0);
         } else {
             led_strip_set_pixel(led_strip, 0, 255, 255, 0);
         }
