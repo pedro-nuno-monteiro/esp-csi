@@ -68,9 +68,6 @@ before_script:
     - build
   variables:
     EXAMPLES: >
-      get-started/csi_send
-      get-started/csi_recv
-      get-started/csi_recv_router
       esp-radar/console_test
       esp-radar/connect_rainmaker
       esp-crab/master_recv
