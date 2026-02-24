@@ -2,10 +2,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <stdbool.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
-#include "freertos/queue.h"
 
 #include "nvs_flash.h"
 
@@ -24,7 +24,7 @@
 #include "protocol_examples_common.h"
 #include "esp_csi_gain_ctrl.h"
 
-#define CONFIG_SEND_FREQUENCY      20   /* CSI/ping rate in Hz */
+#define CONFIG_SEND_FREQUENCY      100
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61
 #define CSI_FORCE_LLTF                      0
 #endif
@@ -42,72 +42,20 @@ static const char *TAG = "csi_recv_router";
 
 #define UDP_SERVER_IP           "10.95.100.235"   /* Change to your UDP server IP */
 #define UDP_SERVER_PORT         5001              /* Change to your UDP server port */
-#define UDP_MAX_CSI_PACKET_SIZE 1024
+#define UDP_MAX_CSI_PACKET_SIZE 1400
 
-typedef struct {
-    size_t len;
-    char   data[UDP_MAX_CSI_PACKET_SIZE];
-} csi_udp_msg_t;
-
-static QueueHandle_t s_csi_udp_queue = NULL;
 static int s_udp_sock = -1;
 static struct sockaddr_in s_udp_dest_addr;
-static uint8_t s_sta_mac[6] = {0};
 
-static void csi_udp_sender_task(void *arg)
+static void udp_client_init(void)
 {
-    for (;;) {
-        csi_udp_msg_t msg;
-        if (xQueueReceive(s_csi_udp_queue, &msg, portMAX_DELAY) == pdTRUE) {
-            if (s_udp_sock < 0) {
-                s_udp_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-                if (s_udp_sock < 0) {
-                    ESP_LOGE(TAG, "Unable to create UDP socket: errno %d", errno);
-                    vTaskDelay(pdMS_TO_TICKS(100));
-                    continue;
-                }
-            }
-
-            int retries = 3;
-            int err = -1;
-            while (retries-- > 0) {
-                err = sendto(s_udp_sock, msg.data, msg.len, 0,
-                             (struct sockaddr *)&s_udp_dest_addr,
-                             sizeof(s_udp_dest_addr));
-                if (err >= 0) {
-                    ESP_LOGI(TAG, "CSI UDP packet sent (%d bytes)", err);
-                    break;
-                }
-
-                if (errno == ENOMEM) {
-                    /* Transient out-of-memory in UDP stack, back off briefly and retry */
-                    vTaskDelay(pdMS_TO_TICKS(5));
-                } else {
-                    ESP_LOGE(TAG, "UDP send failed: errno %d", errno);
-                    break;
-                }
-            }
-
-            if (err < 0 && errno == ENOMEM) {
-                static uint32_t s_udp_enomem_count = 0;
-                s_udp_enomem_count++;
-                if ((s_udp_enomem_count % 100) == 0) {
-                    ESP_LOGW(TAG, "UDP ENOMEM occurred %u times (dropping packets)", (unsigned int)s_udp_enomem_count);
-                }
-            }
-        }
-    }
-}
-
-static void udp_sender_init(void)
-{
-    if (s_csi_udp_queue) {
+    if (s_udp_sock >= 0) {
         return;
     }
 
-    s_csi_udp_queue = xQueueCreate(32, sizeof(csi_udp_msg_t));
-    if (!s_csi_udp_queue) {
-        ESP_LOGE(TAG, "Failed to create CSI UDP queue");
+    s_udp_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (s_udp_sock < 0) {
+        ESP_LOGE(TAG, "Unable to create UDP socket: errno %d", errno);
         return;
     }
 
@@ -116,21 +64,31 @@ static void udp_sender_init(void)
     s_udp_dest_addr.sin_port        = htons(UDP_SERVER_PORT);
     s_udp_dest_addr.sin_addr.s_addr = inet_addr(UDP_SERVER_IP);
 
-    BaseType_t ok = xTaskCreatePinnedToCore(
-        csi_udp_sender_task,
-        "csi_udp_sender",
-        4096,
-        NULL,
-        tskIDLE_PRIORITY + 3,
-        NULL,
-        tskNO_AFFINITY
-    );
+    ESP_LOGI(TAG, "UDP client initialized, sending to %s:%d", UDP_SERVER_IP, UDP_SERVER_PORT);
+}
 
-    if (ok != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create CSI UDP sender task");
-        vQueueDelete(s_csi_udp_queue);
-        s_csi_udp_queue = NULL;
+static bool udp_send_csi_line(const char *data, size_t len)
+{
+    if (s_udp_sock < 0 || !data || !len) {
+        return false;
     }
+
+    int err = sendto(s_udp_sock, data, len, 0, (struct sockaddr *)&s_udp_dest_addr, sizeof(s_udp_dest_addr));
+    if (err < 0) {
+        if (errno != ENOMEM) {
+            ESP_LOGE(TAG, "Error occurred during UDP send: errno %d", errno);
+        } else {
+            // Out of memory in UDP stack; drop this CSI frame silently.
+        }
+        return false;
+    }
+
+    if (err != (int)len) {
+        ESP_LOGW(TAG, "Partial UDP send: sent %d of %d bytes", err, (int)len);
+        return false;
+    }
+
+    return true;
 }
 
 static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
@@ -166,7 +124,6 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
     ESP_LOGD(TAG, "compensate_gain %f, agc_gain %d, fft_gain %d", compensate_gain, agc_gain, fft_gain);
 #endif
 
-#if 0  /* CSI print to terminal disabled */
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
     if (!s_count) {
         ESP_LOGI(TAG, "================ CSI RECV ================");
@@ -205,25 +162,20 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
     }
 #endif
     ets_printf("]\"\n");
-#endif  /* CSI print disabled */
 
-    /* Build the same CSV line into a buffer and enqueue for UDP send in a task */
+    /* Build the same CSV line into a buffer and send via UDP */
     char udp_buf[UDP_MAX_CSI_PACKET_SIZE];
     int len = 0;
 
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
     len = snprintf(udp_buf, sizeof(udp_buf),
-                   "%02X:%02X:%02X:%02X:%02X:%02X,CSI_DATA,%d," MACSTR ",%d,%d,%d,%d,%d,%d,%d,%d,%d",
-                   s_sta_mac[0], s_sta_mac[1], s_sta_mac[2],
-                   s_sta_mac[3], s_sta_mac[4], s_sta_mac[5],
+                   "CSI_DATA,%d," MACSTR ",%d,%d,%d,%d,%d,%d,%d,%d,%d",
                    s_count, MAC2STR(info->mac), rx_ctrl->rssi, rx_ctrl->rate,
                    rx_ctrl->noise_floor, fft_gain, agc_gain, rx_ctrl->channel,
                    rx_ctrl->timestamp, rx_ctrl->sig_len, rx_ctrl->rx_state);
 #else
     len = snprintf(udp_buf, sizeof(udp_buf),
-                   "%02X:%02X:%02X:%02X:%02X:%02X,CSI_DATA,%d," MACSTR ",%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
-                   s_sta_mac[0], s_sta_mac[1], s_sta_mac[2],
-                   s_sta_mac[3], s_sta_mac[4], s_sta_mac[5],
+                   "CSI_DATA,%d," MACSTR ",%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
                    s_count, MAC2STR(info->mac), rx_ctrl->rssi, rx_ctrl->rate, rx_ctrl->sig_mode,
                    rx_ctrl->mcs, rx_ctrl->cwb, rx_ctrl->smoothing, rx_ctrl->not_sounding,
                    rx_ctrl->aggregation, rx_ctrl->stbc, rx_ctrl->fec_coding, rx_ctrl->sgi,
@@ -255,19 +207,13 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
             len += snprintf(udp_buf + len, sizeof(udp_buf) - len, "]\"\n");
         }
 
-        if (len > 0 && s_csi_udp_queue) {
-            csi_udp_msg_t msg = { 0 };
-            msg.len = (size_t)len;
-            if (msg.len >= UDP_MAX_CSI_PACKET_SIZE) {
-                msg.len = UDP_MAX_CSI_PACKET_SIZE - 1;
-            }
-            memcpy(msg.data, udp_buf, msg.len);
-            msg.data[msg.len] = '\0';
-            if (xQueueSend(s_csi_udp_queue, &msg, 0) != pdPASS) {
-                static uint32_t s_udp_drop_count = 0;
-                s_udp_drop_count++;
-                if ((s_udp_drop_count % 100) == 0) {
-                    ESP_LOGW(TAG, "CSI UDP queue full, dropped %u messages", (unsigned int)s_udp_drop_count);
+        if (len > 0) {
+            static uint32_t s_udp_fail_count = 0;
+            bool ok = udp_send_csi_line(udp_buf, (size_t)len);
+            if (!ok) {
+                s_udp_fail_count++;
+                if ((s_udp_fail_count % 100) == 0) {
+                    ESP_LOGW(TAG, "CSI UDP send failed %u times", (unsigned int)s_udp_fail_count);
                 }
             }
         }
@@ -367,10 +313,11 @@ void app_main()
      */
     ESP_ERROR_CHECK(example_connect());
 
-    ESP_ERROR_CHECK(esp_wifi_get_mac(WIFI_IF_STA, s_sta_mac));
-    ESP_LOGI(TAG, "STA MAC: " MACSTR, MAC2STR(s_sta_mac));
+    uint8_t sta_mac[6];
+    ESP_ERROR_CHECK(esp_wifi_get_mac(WIFI_IF_STA, sta_mac));
+    ESP_LOGI(TAG, "STA MAC: " MACSTR, MAC2STR(sta_mac));
 
-    udp_sender_init();
+    udp_client_init();
     wifi_csi_init();
     wifi_ping_router_start();
 }
