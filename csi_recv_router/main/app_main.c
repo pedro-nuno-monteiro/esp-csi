@@ -15,6 +15,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -31,10 +32,14 @@
 #include "lwip/inet.h"
 #include "lwip/netdb.h"
 #include "lwip/sockets.h"
+
 #include "ping/ping_sock.h"
+#include "esp_timer.h"
 
 #include "protocol_examples_common.h"
 #include "esp_csi_gain_ctrl.h"
+
+/* ============= USER CONFIG ============= */
 
 #define ESP_WIFI_SSID      "NOS_JCAS"
 #define ESP_WIFI_PASS      "q1w2e3r4"
@@ -42,15 +47,41 @@
 #define server_ip          "10.95.100.235"
 #define SERVER_UDP_PORT    5001
 
-/* Buffer large enough for the full CSI CSV line.
-   LLTF: 128 int8 values, each up to 5 chars + comma = ~700 chars + header ~200 chars. */
-#define CSI_BUF_SIZE       2048
+#define CSI_QUEUE_SIZE     64
+#define MAX_CSI_LEN        256
 
+#define CONFIG_SEND_FREQUENCY 50
+
+/* ======================================== */
+
+
+/* ============= CSI CONFIG  ============== */
+
+typedef struct {
+    uint8_t type;
+    uint32_t seq;
+    uint8_t mac[6];
+    int8_t rssi;
+    uint8_t rate;
+    int8_t noise_floor;
+    int8_t fft_gain;
+    uint8_t agc_gain;
+    uint8_t channel;
+    uint32_t local_timestamp;
+    uint16_t sig_len;
+    uint16_t rx_state;
+    uint16_t len;
+    uint8_t first_word_invalid;
+    uint16_t csi_len;
+    int16_t csi_data[MAX_CSI_LEN];
+} csi_packet;
+
+/* ======================================== */
+
+static QueueHandle_t csi_queue;
 static int udp_sock = -1;
 static struct sockaddr_in server_addr;
 
-#define CONFIG_SEND_FREQUENCY      100
-#define CSI_SEND_INTERVAL          1
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61
 #define CSI_FORCE_LLTF                      0
 #endif
@@ -66,11 +97,56 @@ static struct sockaddr_in server_addr;
 
 static const char *TAG = "CSI Recv Router Mode";
 
-/* Forward declarations */
-static void send_csi_udp(const char *data, size_t len);
+static void udp_init(void) {
+    udp_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (udp_sock < 0) {
+        ESP_LOGE(TAG, "Unable to create UDP socket");
+        return;
+    }
 
-static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(SERVER_UDP_PORT);
+    server_addr.sin_addr.s_addr = inet_addr(server_ip);
+
+    int sndbuf = 16384;
+    setsockopt(udp_sock, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
+
+    ESP_LOGI(TAG, "UDP socket initialized");
+}
+
+/* ===================== UDP TASK ======================== */
+
+static void csi_udp_task(void *pvParameters)
 {
+    csi_packet packet;
+
+    while (1) {
+        if (xQueueReceive(csi_queue, &packet, portMAX_DELAY)) {
+
+            int send_len = offsetof(csi_packet, csi_data) + packet.csi_len;
+            int err;
+            do {
+                err = sendto(udp_sock,
+                             &packet,
+                             send_len,
+                             0,
+                             (struct sockaddr *)&server_addr,
+                             sizeof(server_addr));
+                if (err < 0 && errno == ENOMEM) {
+                    vTaskDelay(pdMS_TO_TICKS(20)); /* yield so lwIP can free pbufs */
+                }
+            } while (err < 0 && errno == ENOMEM);
+
+            if (err < 0) {
+                ESP_LOGE(TAG, "UDP send error: errno %d", errno);
+            }
+        }
+    }
+}
+
+static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info) {
+
     if (!info || !info->buf) {
         ESP_LOGW(TAG, "<%s> wifi_csi_cb", esp_err_to_name(ESP_ERR_INVALID_ARG));
         return;
@@ -80,12 +156,34 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
         return;
     }
 
-    const wifi_pkt_rx_ctrl_t *rx_ctrl = &info->rx_ctrl;
-    static int s_count = 0;
-    float compensate_gain = 1.0f;
-    static uint8_t agc_gain = 0;
-    static int8_t fft_gain = 0;
+    static uint32_t s_count = 0;
+    if (++s_count % 5 != 0) return;
 
+    csi_packet packet;
+    memset(&packet, 0, sizeof(packet));
+
+    packet.local_timestamp = (uint32_t)(esp_timer_get_time() & 0xFFFFFFFF);
+    memcpy(packet.mac, info->mac, 6);
+    packet.rssi            = info->rx_ctrl.rssi;
+    packet.rate            = info->rx_ctrl.rate;
+    packet.noise_floor     = info->rx_ctrl.noise_floor;
+    packet.channel         = info->rx_ctrl.channel;
+    packet.sig_len         = info->rx_ctrl.sig_len;
+    packet.rx_state        = info->rx_ctrl.rx_state;
+    packet.len             = info->len;
+    packet.first_word_invalid = info->first_word_invalid;
+    packet.csi_len         = info->len < MAX_CSI_LEN * (int)sizeof(int16_t)
+                            ? info->len
+                            : MAX_CSI_LEN * (int)sizeof(int16_t);
+    memcpy(packet.csi_data, info->buf, packet.csi_len);
+
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    xQueueSendFromISR(csi_queue, &packet, &xHigherPriorityTaskWoken);
+    if (xHigherPriorityTaskWoken) {
+        portYIELD_FROM_ISR();
+    }
+
+/*
 #if CONFIG_GAIN_CONTROL
     static uint8_t agc_gain_baseline = 0;
     static int8_t fft_gain_baseline = 0;
@@ -106,7 +204,7 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
     char buf[CSI_BUF_SIZE];
     int offset = 0;
 
-    /* Send CSV header once on first packet */
+    // Send CSV header once on first packet 
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
     if (!s_count) {
         ESP_LOGI(TAG, "================ CSI RECV ================");
@@ -114,10 +212,10 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
         send_csi_udp(header, strlen(header));
     }
     offset += snprintf(buf + offset, sizeof(buf) - offset,
-                       "CSI_DATA,%d," MACSTR ",%d,%d,%d,%d,%d,%d,%d,%d,%d",
-                       s_count, MAC2STR(info->mac), rx_ctrl->rssi, rx_ctrl->rate,
-                       rx_ctrl->noise_floor, fft_gain, agc_gain, rx_ctrl->channel,
-                       rx_ctrl->timestamp, rx_ctrl->sig_len, rx_ctrl->rx_state);
+                    "CSI_DATA,%d," MACSTR ",%d,%d,%d,%d,%d,%d,%d,%d,%d",
+                    s_count, MAC2STR(info->mac), rx_ctrl->rssi, rx_ctrl->rate,
+                    rx_ctrl->noise_floor, fft_gain, agc_gain, rx_ctrl->channel,
+                    rx_ctrl->timestamp, rx_ctrl->sig_len, rx_ctrl->rx_state);
 #else
     if (!s_count) {
         ESP_LOGI(TAG, "================ CSI RECV ================");
@@ -133,7 +231,7 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
         rx_ctrl->timestamp, rx_ctrl->ant, rx_ctrl->sig_len, rx_ctrl->rx_state);
 #endif
 
-    /* Append CSI data array */
+    // Append CSI data array 
 #if (CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61) && CSI_FORCE_LLTF
     int16_t csi = ((int16_t)(((((uint16_t)info->buf[1]) << 8) | info->buf[0]) << 4) >> 4);
     offset += snprintf(buf + offset, sizeof(buf) - offset,
@@ -154,10 +252,11 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
 
     offset += snprintf(buf + offset, sizeof(buf) - offset, "]\"\n");
 
-    /* Send complete CSI line via UDP */
+    // Send complete CSI line via UDP 
     send_csi_udp(buf, offset);
 
     s_count++;
+*/
 }
 
 static void wifi_csi_init() {
@@ -236,63 +335,6 @@ static esp_err_t wifi_ping_router_start() {
     return ESP_OK;
 }
 
-// NEW FUNCTIONS - 23/02/2026
-
-// Function to test TCP connection
-void test_server_connection() {
-
-    struct sockaddr_in server_addr;
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) {
-        ESP_LOGE(TAG, "Socket creation failed!");
-        return;
-    }
-
-    // Flask server IP
-    server_addr.sin_addr.s_addr = inet_addr(server_ip);
-    server_addr.sin_family = AF_INET;
-
-    // Flask server port
-    server_addr.sin_port = htons(SERVER_UDP_PORT);
-
-    ESP_LOGI(TAG, "Testing connection to Flask server...");
-    if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) == 0) {
-        ESP_LOGI(TAG, "Successfully connected to Flask server!");
-    } else {
-        ESP_LOGE(TAG, "Failed to connect to Flask server! Check firewall/network.");
-    }
-    close(sock);
-}
-
-void csi_udp_init() {
-    udp_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-    if (udp_sock < 0) {
-        ESP_LOGE(TAG, "Unable to create UDP socket");
-        return;
-    }
-
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_addr.s_addr = inet_addr(server_ip);
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(5001);
-
-    ESP_LOGI(TAG, "UDP socket initialized");
-}
-
-
-// send via udp
-static void send_csi_udp(const char *data, size_t len)
-{
-    if (udp_sock < 0) return;
-
-    int err = sendto(udp_sock, data, len, 0,
-                     (struct sockaddr *)&server_addr,
-                     sizeof(server_addr));
-
-    if (err < 0) {
-        ESP_LOGE(TAG, "UDP send failed: errno %d", errno);
-    }
-}
 
 void app_main() {
 
@@ -306,9 +348,37 @@ void app_main() {
      *        for more information about this function.
      */
     ESP_ERROR_CHECK(example_connect());
-    csi_udp_init();
 
+    esp_wifi_set_ps(WIFI_PS_NONE);
+
+    /* Create queue */
+    csi_queue = xQueueCreate(CSI_QUEUE_SIZE, sizeof(csi_packet));
+    if (!csi_queue) {
+        ESP_LOGE(TAG, "Failed to create CSI queue");
+        return;
+    }
+
+    /* Init UDP */
+    udp_init();
+
+    printf("Connected to Wi-Fi network \"%s\", starting CSI collection...\n", ESP_WIFI_SSID);
+
+    /* Start UDP task */
+    xTaskCreatePinnedToCore(
+        csi_udp_task,
+        "csi_udp_task",
+        4096,
+        NULL,
+        5,
+        NULL,
+        tskNO_AFFINITY
+    );
+
+    /* Init CSI */
     wifi_csi_init();
-    wifi_ping_router_start();
-    test_server_connection();
+
+    /* Start pinging the router to generate CSI frames */
+    ESP_ERROR_CHECK(wifi_ping_router_start());
+
+    ESP_LOGI(TAG, "System ready. Collecting CSI...");
 }
