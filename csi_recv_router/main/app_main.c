@@ -24,7 +24,7 @@
 #include "protocol_examples_common.h"
 #include "esp_csi_gain_ctrl.h"
 
-#define CONFIG_SEND_FREQUENCY      20   /* CSI/ping rate in Hz */
+#define CONFIG_SEND_FREQUENCY     1    /* CSI/ping rate in Hz */
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61
 #define CSI_FORCE_LLTF                      0
 #endif
@@ -40,7 +40,7 @@
 
 static const char *TAG = "csi_recv_router";
 
-#define UDP_SERVER_IP           "10.95.100.235"   /* Change to your UDP server IP */
+#define UDP_SERVER_IP           "193.136.94.101"   /* Change to your UDP server IP */
 #define UDP_SERVER_PORT         5001              /* Change to your UDP server port */
 #define UDP_MAX_CSI_PACKET_SIZE 1024
 
@@ -166,7 +166,6 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
     ESP_LOGD(TAG, "compensate_gain %f, agc_gain %d, fft_gain %d", compensate_gain, agc_gain, fft_gain);
 #endif
 
-#if 0  /* CSI print to terminal disabled */
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
     if (!s_count) {
         ESP_LOGI(TAG, "================ CSI RECV ================");
@@ -205,7 +204,6 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
     }
 #endif
     ets_printf("]\"\n");
-#endif  /* CSI print disabled */
 
     /* Build the same CSV line into a buffer and enqueue for UDP send in a task */
     char udp_buf[UDP_MAX_CSI_PACKET_SIZE];
