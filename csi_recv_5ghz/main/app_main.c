@@ -24,6 +24,8 @@
 #include "protocol_examples_common.h"
 #include "esp_csi_gain_ctrl.h"
 
+#include "esp_timer.h"
+
 #define CONFIG_SEND_FREQUENCY     1    /* CSI/ping rate in Hz */
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61
 #define CSI_FORCE_LLTF                      0
@@ -55,7 +57,7 @@ static struct sockaddr_in s_udp_dest_addr;
 static uint8_t s_sta_mac[6] = {0};
 
 static void csi_udp_sender_task(void *arg)
-{
+{   
     for (;;) {
         csi_udp_msg_t msg;
         if (xQueueReceive(s_csi_udp_queue, &msg, portMAX_DELAY) == pdTRUE) {
@@ -73,7 +75,7 @@ static void csi_udp_sender_task(void *arg)
             while (retries-- > 0) {
                 err = sendto(s_udp_sock, msg.data, msg.len, 0,
                              (struct sockaddr *)&s_udp_dest_addr,
-                             sizeof(s_udp_dest_addr));
+                            sizeof(s_udp_dest_addr));
                 if (err >= 0) {
                     ESP_LOGI(TAG, "CSI UDP packet sent (%d bytes)", err);
                     break;
@@ -166,26 +168,32 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
     ESP_LOGD(TAG, "compensate_gain %f, agc_gain %d, fft_gain %d", compensate_gain, agc_gain, fft_gain);
 #endif
 
+int64_t esp_time_us = esp_timer_get_time();
+
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
+
+// É ESTE QUE É ENVIADO para 5 GHz
     if (!s_count) {
         ESP_LOGI(TAG, "================ CSI RECV ================");
-        ets_printf("type,seq,mac,rssi,rate,noise_floor,fft_gain,agc_gain,channel,local_timestamp,sig_len,rx_state,len,first_word,data\n");
+        ets_printf("type,seq,mac,rssi,rate,noise_floor,fft_gain,agc_gain,channel,local_timestamp,esp_time_us,sig_len,rx_state,len,first_word,data\n");
     }
-    ets_printf("CSI_DATA,%d," MACSTR ",%d,%d,%d,%d,%d,%d,%d,%d,%d",
-               s_count, MAC2STR(info->mac), rx_ctrl->rssi, rx_ctrl->rate,
-               rx_ctrl->noise_floor, fft_gain, agc_gain, rx_ctrl->channel,
-               rx_ctrl->timestamp, rx_ctrl->sig_len, rx_ctrl->rx_state);
+    ets_printf("CSI_DATA,%d," MACSTR ",%d,%d,%d,%d,%d,%d,%d,%lld,%d,%d",
+            s_count, MAC2STR(info->mac), rx_ctrl->rssi, rx_ctrl->rate,
+            rx_ctrl->noise_floor, fft_gain, agc_gain, rx_ctrl->channel,
+            rx_ctrl->timestamp, esp_time_us, rx_ctrl->sig_len, rx_ctrl->rx_state);
 #else
+
+// É ESTE QUE É ENVIADO para 2.4 GHz
     if (!s_count) {
         ESP_LOGI(TAG, "================ CSI RECV ================");
-        ets_printf("type,id,mac,rssi,rate,sig_mode,mcs,bandwidth,smoothing,not_sounding,aggregation,stbc,fec_coding,sgi,noise_floor,ampdu_cnt,channel,secondary_channel,local_timestamp,ant,sig_len,rx_state,len,first_word,data\n");
+        ets_printf("type,id,mac,rssi,rate,sig_mode,mcs,bandwidth,smoothing,not_sounding,aggregation,stbc,fec_coding,sgi,noise_floor,ampdu_cnt,channel,secondary_channel,local_timestamp,esp_time_us,ant,sig_len,rx_state,len,first_word,data\n");
     }
-    ets_printf("CSI_DATA,%d," MACSTR ",%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
-               s_count, MAC2STR(info->mac), rx_ctrl->rssi, rx_ctrl->rate, rx_ctrl->sig_mode,
-               rx_ctrl->mcs, rx_ctrl->cwb, rx_ctrl->smoothing, rx_ctrl->not_sounding,
-               rx_ctrl->aggregation, rx_ctrl->stbc, rx_ctrl->fec_coding, rx_ctrl->sgi,
-               rx_ctrl->noise_floor, rx_ctrl->ampdu_cnt, rx_ctrl->channel, rx_ctrl->secondary_channel,
-               rx_ctrl->timestamp, rx_ctrl->ant, rx_ctrl->sig_len, rx_ctrl->rx_state);
+    ets_printf("CSI_DATA,%d," MACSTR ",%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%lld,%d,%d,%d",
+            s_count, MAC2STR(info->mac), rx_ctrl->rssi, rx_ctrl->rate, rx_ctrl->sig_mode,
+            rx_ctrl->mcs, rx_ctrl->cwb, rx_ctrl->smoothing, rx_ctrl->not_sounding,
+            rx_ctrl->aggregation, rx_ctrl->stbc, rx_ctrl->fec_coding, rx_ctrl->sgi,
+            rx_ctrl->noise_floor, rx_ctrl->ampdu_cnt, rx_ctrl->channel, rx_ctrl->secondary_channel,
+            rx_ctrl->timestamp, esp_time_us, rx_ctrl->ant, rx_ctrl->sig_len, rx_ctrl->rx_state);
 #endif
 
 #if (CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61) && CSI_FORCE_LLTF
