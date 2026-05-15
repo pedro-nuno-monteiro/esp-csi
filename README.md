@@ -1,3 +1,30 @@
+# ESP-CSI router receiver builds
+
+This repository contains two ready-to-build versions of the router CSI receiver:
+
+- `csi_recv_2_4ghz`: 2.4 GHz build, configured to connect to the 2.4 GHz router SSID.
+- `csi_recv_5ghz`: 5 GHz build, configured to connect to the 5 GHz router SSID.
+
+The application logic is the same in both folders. The practical difference between the two builds is the Wi-Fi router name selected in `idf.py menuconfig`: the 2.4 GHz build uses the 2.4 GHz SSID, while the 5 GHz build uses the 5 GHz SSID. In the current checked-in configs these are `NOS_JCAS` for 2.4 GHz and `NOS_JCAS_5G` for 5 GHz. If the router names change, update each build from its own folder with:
+
+```sh
+idf.py menuconfig
+```
+
+Then configure the Wi-Fi connection options for that build and rebuild/flash from the same directory.
+
+The receiver samples CSI from router traffic. After joining the configured Wi-Fi network, the ESP sends continuous ping packets to the gateway/router. Router replies trigger CSI callbacks, and the callback filters packets so only CSI from the connected AP BSSID is processed.
+
+## Project-specific changes
+
+- CSI capture is configured for a 100 Hz rate. `CONFIG_SEND_FREQUENCY` sends pings every 10 ms, and `TARGET_RATE_HZ`/`TARGET_INTERVAL_US` also rate-gate the CSI callback to one output every 10 ms.
+- A real ESP timestamp field, `esp_time_us`, was added to the serial CSV output. It is captured with `esp_timer_get_time()` when the CSI callback runs, in microseconds, and complements the Wi-Fi `local_timestamp` value from `rx_ctrl->timestamp`. This timer is useful for measuring sample spacing and aligning captures; it is not a UTC wall-clock timestamp unless separate time synchronization is added.
+- CSI rows are also formatted for UDP transmission. The firmware prepends the ESP station MAC address and sends the CSV packet to the configured UDP server (`UDP_SERVER_IP`, `UDP_SERVER_PORT`) from `main/app_main.c`.
+- Gain metadata and compensation are included where supported. The output contains fields such as RSSI, rate, channel, noise floor, FFT gain, AGC gain, packet length, and the CSI data array.
+- The 5 GHz build should be flashed to ESP hardware that supports 5 GHz Wi-Fi. The 2.4 GHz build is the safer default for ESP boards that only support 2.4 GHz.
+
+The following content is the original Espressif ESP-CSI documentation included with the official CSI tool.
+
 # ESP-CSI [[中文]](./README_cn.md)
 
 ## Introduction to CSI

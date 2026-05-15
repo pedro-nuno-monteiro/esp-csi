@@ -26,7 +26,10 @@
 
 #include "esp_timer.h"
 
-#define CONFIG_SEND_FREQUENCY     1    /* CSI/ping rate in Hz */
+#define CONFIG_SEND_FREQUENCY     100    /* CSI/ping rate in Hz */
+#define TARGET_RATE_HZ              100   /* Desired CSI output rate in Hz */
+#define TARGET_INTERVAL_US          (1000000 / TARGET_RATE_HZ)  /* 10000 µs = 10 ms */
+
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C61
 #define CSI_FORCE_LLTF                      0
 #endif
@@ -107,7 +110,8 @@ static void udp_sender_init(void)
         return;
     }
 
-    s_csi_udp_queue = xQueueCreate(32, sizeof(csi_udp_msg_t));
+    /* Increased queue size from 32 to 256 to handle 100 packets/s bursts */
+    s_csi_udp_queue = xQueueCreate(64, sizeof(csi_udp_msg_t));
     if (!s_csi_udp_queue) {
         ESP_LOGE(TAG, "Failed to create CSI UDP queue");
         return;
@@ -146,6 +150,14 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
         return;
     }
 
+        /* Rate gate: enforce TARGET_RATE_HZ regardless of how many callbacks fire per ping */
+    static int64_t last_send_us = 0;
+    int64_t esp_time_us = esp_timer_get_time();
+    if ((esp_time_us - last_send_us) < TARGET_INTERVAL_US) {
+        return;
+    }
+    last_send_us = esp_time_us;
+
     const wifi_pkt_rx_ctrl_t *rx_ctrl = &info->rx_ctrl;
     static int s_count = 0;
     float compensate_gain = 1.0f;
@@ -167,8 +179,6 @@ static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info)
     esp_csi_gain_ctrl_get_gain_compensation(&compensate_gain, agc_gain, fft_gain);
     ESP_LOGD(TAG, "compensate_gain %f, agc_gain %d, fft_gain %d", compensate_gain, agc_gain, fft_gain);
 #endif
-
-int64_t esp_time_us = esp_timer_get_time();
 
 #if CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32C61
 
